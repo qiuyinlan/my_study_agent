@@ -295,6 +295,16 @@ check('今日复盘只包含事件、改进、肯定三项',
   $$('#view-today [data-review-field]').map(field => field.dataset.reviewField).join(',') === 'events,review,positive');
 check('今日复盘显示月历日期', $$('#view-today [data-review-date]').length >= 28);
 const reviewEventField = $('#view-today [data-review-field="events"]');
+let copiedReview = '';
+Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+  writeText: async text => { copiedReview = text; },
+} });
+reviewEventField.value = '刚写完，还未自动保存\n第二行';
+click('#view-today [data-review-copy]');
+await waitFor(() => copiedReview.length > 0, { label: '复制复盘' });
+const { dateStr: reviewDateStr } = await import('../src/util.js');
+eq('复制复盘包含日期标签和未保存的多行内容', copiedReview,
+  `#${reviewDateStr().replaceAll('-', '/')}/日记\n\n事件\n刚写完，还未自动保存\n第二行`);
 reviewEventField.value = 'DOM 测试复盘事件';
 reviewEventField.dispatchEvent(new window.Event('input', { bubbles: true }));
 await waitFor(() => Object.keys(localStorage).some(key => key.startsWith('msa.daily-review.v1:')),
@@ -310,6 +320,12 @@ reviewDate.dispatchEvent(new window.Event('click', { bubbles: true }));
 await waitFor(() => $('#view-today [data-review-date].is-selected')?.dataset.reviewDate === selectedHistoryDate,
   { label: '日历切换日期' });
 check('点击日历日期可打开历史复盘', $('#view-today [data-review-field="events"]')?.value !== 'DOM 测试复盘事件');
+copiedReview = '';
+$('#view-today [data-review-field="positive"]').value = '历史肯定';
+click('#view-today [data-review-copy]');
+await waitFor(() => copiedReview.length > 0, { label: '复制历史复盘' });
+eq('历史复盘复制使用选中日期并省略空项', copiedReview,
+  `#${selectedHistoryDate.replaceAll('-', '/')}/日记\n\n肯定\n历史肯定`);
 check('对话区显示空状态提示', $('#messages .placeholder') !== null);
 
 /* ══════════ 2. 界面结构 ══════════ */

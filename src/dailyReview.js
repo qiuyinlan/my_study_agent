@@ -1,4 +1,4 @@
-import { esc, icon } from './ui.js';
+import { esc, icon, toast } from './ui.js';
 import { dateStr } from './util.js';
 
 const LOCAL_PREFIX = 'msa.daily-review.v1:';
@@ -347,7 +347,7 @@ export async function renderDailyReview(root) {
     <div class="daily-review-main">
       <header class="daily-review-heading"><div><span class="habit-kicker">DAILY REVIEW</span><h3>${date === dateStr() ? '今日复盘' : '每日复盘'}</h3><p>${date.replaceAll('-', '年').replace(/年(\d{2})$/, '月$1日')}</p></div><span class="review-sync-status" data-review-sync>${esc(sync.message)}</span></header>
       <div class="daily-review-fields">${FIELDS.map(key => `<label class="daily-review-field"><span>${LABELS[key]}</span><textarea rows="5" data-review-field="${key}" placeholder="${key === 'events' ? '今天发生了什么？' : key === 'review' ? '下次可以怎样调整？' : '今天哪些地方值得肯定？'}">${esc(entry[key] || '')}</textarea></label>`).join('')}</div>
-      <div class="daily-review-save-line"><span data-review-save-state>自动保存</span></div>
+      <div class="daily-review-save-line"><span data-review-save-state>自动保存</span><button type="button" class="ghost" data-review-copy>复制复盘</button></div>
     </div>
     <aside class="daily-review-calendar" aria-label="复盘日历">
       <div class="review-calendar-head"><button type="button" data-review-month="-1" aria-label="上个月">${icon('chevron-left')}</button><strong>${year}年${monthNumber}月</strong><button type="button" data-review-month="1" aria-label="下个月">${icon('chevron-right')}</button></div>
@@ -356,6 +356,34 @@ export async function renderDailyReview(root) {
       <button type="button" class="review-calendar-today" data-review-today>回到今天</button>
     </aside>
   </section>`;
+  root.querySelector('[data-review-copy]').addEventListener('click', async () => {
+    const sections = FIELDS.map(key => {
+      const value = root.querySelector(`[data-review-field="${key}"]`).value.trim();
+      return value ? `${LABELS[key]}\n${value}` : '';
+    }).filter(Boolean);
+    const text = [`#${date.replaceAll('-', '/')}/日记`, ...sections].join('\n\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const field = document.createElement('textarea');
+        field.value = text;
+        field.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+        document.body.append(field);
+        const focused = document.activeElement;
+        try {
+          field.select();
+          if (!document.execCommand('copy')) throw new Error('copy failed');
+        } finally {
+          field.remove();
+          focused?.focus();
+        }
+      }
+      toast('复盘已复制');
+    } catch {
+      toast('复制失败，请允许网页访问剪贴板后重试', 'err');
+    }
+  });
   root.querySelectorAll('[data-review-date]').forEach(button => button.addEventListener('click', async () => {
     await saveVisibleReview(root, { immediate: true });
     selectedDate = button.dataset.reviewDate;

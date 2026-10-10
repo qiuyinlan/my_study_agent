@@ -1146,7 +1146,7 @@ body {
 .daily-review-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
 .daily-review-field { display:flex; flex-direction:column; gap:8px; color:#355a40; font-size:14px; font-weight:650; }
 .daily-review-field textarea { min-height:180px; resize:vertical; background:#fbfdfb; border-color:#dce9dc; font-weight:400; line-height:1.7; }
-.daily-review-save-line { margin-top:12px; color:#829184; font-size:12px; text-align:right; }
+.daily-review-save-line { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:12px; color:#829184; font-size:12px; }
 .daily-review-calendar { padding:16px; }
 .review-calendar-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; color:#345b3f; }
 .review-calendar-head button { display:grid; place-items:center; width:32px; height:32px; border:1px solid #e0ebe1; border-radius:6px; background:#fff; color:#477252; }
