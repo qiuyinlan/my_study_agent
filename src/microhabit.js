@@ -80,10 +80,16 @@ export function changeMicroHabit({ action, id = '', title = '', active = true, d
 }
 
 function saveMicroHabitState(state) {
-  localStorage.setItem(STATE_KEY, JSON.stringify({
+  const next = {
     ...state,
     mainline: state.mainlines?.[0]?.title || '',
-  }));
+  };
+  localStorage.setItem(STATE_KEY, JSON.stringify(next));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new window.CustomEvent('msa:micro-habits-changed', {
+      detail: { habits: next.habits, completions: next.completions },
+    }));
+  }
 }
 
 export function getTodayHabitSnapshot() {

@@ -668,9 +668,7 @@ function wireTopbar() {
 async function boot() {
   loadUiState();
   applyUiState();
-  await initDailyReviewSync(() => {
-    if (getCurrentPanel() === 'today') void refreshAll();
-  });
+  await initDailyReviewSync(() => { void refreshAll(); });
 
   wireComposer();
   wireTopbar();
@@ -694,11 +692,8 @@ async function boot() {
     console.warn('[mirror]', e);
   }
 
-  // 首次使用：没有 Key 就引导设置
-  if (!loadSettings().apiKey) {
-    toast('第一次使用：先填入 DeepSeek API Key');
-    setTimeout(() => openSettings({ onChange: refreshAll, profile }), 400);
-  } else if (!profile.onboardedAt) {
+  // 没有 Key 时不再每次启动强制弹出设置；发送消息时会按需打开。
+  if (loadSettings().apiKey && !profile.onboardedAt) {
     // §4：初始化没完成就提示开始
     toast('档案还没建立。跟帕尼尼说句话，他会开始问你。');
   }

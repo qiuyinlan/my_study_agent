@@ -3,12 +3,16 @@ import { dateStr } from './util.js';
 
 const LOCAL_PREFIX = 'msa.daily-review.v1:';
 const QUEUE_KEY = 'msa.daily-review-sync.v1';
+const MICRO_HABIT_KEY = 'micro-habit-local-state-v1';
 const FIELDS = ['events', 'review', 'positive'];
 const LABELS = { events: '事件', review: '改进', positive: '肯定' };
 let client = null;
 let session = null;
 let changeHandler = null;
 let flushPromise = null;
+let microHabitSyncPromise = null;
+let microHabitListenerReady = false;
+let microHabitSyncError = '';
 
 const localKey = date => `${LOCAL_PREFIX}${date}`;
 const monthKey = date => date.slice(0, 7);
@@ -52,22 +56,94 @@ async function loadSession() {
   if (!supabase) return null;
   const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
+  microHabitSyncError = '';
   session = data.session;
   return session;
+}
+
+function localMicroHabitState() {
+  try {
+    const value = JSON.parse(localStorage.getItem(MICRO_HABIT_KEY) || '{}');
+    return {
+      habits: Array.isArray(value.habits) ? value.habits : [],
+      completions: value.completions && typeof value.completions === 'object' ? value.completions : {},
+    };
+  } catch {
+    return { habits: [], completions: {} };
+  }
+}
+
+async function saveMicroHabitStateToCloud(state = localMicroHabitState()) {
+  if (!session) return;
+  const { error } = await getClient().from('user_micro_habit_states').upsert({
+    user_id: session.user.id,
+    state: { habits: state.habits || [], completions: state.completions || {} },
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' });
+  if (error) throw error;
+}
+
+async function syncMicroHabitState() {
+  if (!session) return;
+  if (microHabitSyncPromise) return microHabitSyncPromise;
+  microHabitSyncPromise = (async () => {
+    const supabase = getClient();
+    const { data, error } = await supabase.from('user_micro_habit_states')
+      .select('state').maybeSingle();
+    if (error) throw error;
+    microHabitSyncError = '';
+    if (data?.state && typeof data.state === 'object') {
+      const local = (() => {
+        try { return JSON.parse(localStorage.getItem(MICRO_HABIT_KEY) || '{}'); }
+        catch { return {}; }
+      })();
+      localStorage.setItem(MICRO_HABIT_KEY, JSON.stringify({
+        ...local,
+        habits: Array.isArray(data.state.habits) ? data.state.habits : [],
+        completions: data.state.completions && typeof data.state.completions === 'object'
+          ? data.state.completions : {},
+      }));
+    } else {
+      const local = localMicroHabitState();
+      if (local.habits.length || Object.keys(local.completions).length) {
+        await saveMicroHabitStateToCloud(local);
+      }
+    }
+  })().catch(error => {
+    microHabitSyncError = error.message || String(error);
+    console.warn('[micro-habit-sync]', error);
+  }).finally(() => { microHabitSyncPromise = null; });
+  return microHabitSyncPromise;
 }
 
 export async function initDailyReviewSync(onChange) {
   changeHandler = onChange || null;
   const supabase = getClient();
   if (!supabase) return getDailyReviewSyncStatus();
+  if (!microHabitListenerReady && typeof window !== 'undefined') {
+    window.addEventListener('msa:micro-habits-changed', event => {
+      if (session) void saveMicroHabitStateToCloud(event.detail).catch(error => {
+        microHabitSyncError = error.message || String(error);
+        console.warn('[micro-habit-sync]', error);
+        changeHandler?.();
+      });
+    });
+    microHabitListenerReady = true;
+  }
   try {
     await loadSession();
     supabase.auth.onAuthStateChange((_event, nextSession) => {
       session = nextSession;
-      if (session) void flushQueue();
-      changeHandler?.();
+      if (session) {
+        setTimeout(() => {
+          void Promise.all([flushQueue(), syncMicroHabitState()]).finally(() => changeHandler?.());
+        }, 0);
+      } else changeHandler?.();
     });
-    if (session) await flushQueue();
+    if (session) {
+      await flushQueue();
+      await syncMicroHabitState();
+    }
   } catch (error) {
     console.warn('[daily-review-sync]', error);
   }
@@ -81,7 +157,9 @@ export function getDailyReviewSyncStatus() {
   return {
     connected: true,
     email: session.user?.email || '',
-    message: waiting ? `已登录 · ${waiting} 条等待同步` : '已同步到 Supabase',
+    message: microHabitSyncError
+      ? `微习惯同步失败，请执行 supabase/micro-habits.sql：${microHabitSyncError}`
+      : waiting ? `已登录 · ${waiting} 条等待同步` : '每日复盘与微习惯已连接 Supabase',
   };
 }
 
@@ -92,6 +170,7 @@ export async function signInDailyReview(email, password) {
   if (error) throw error;
   session = data.session;
   await flushQueue();
+  await syncMicroHabitState();
   changeHandler?.();
   return getDailyReviewSyncStatus();
 }
@@ -102,7 +181,10 @@ export async function signUpDailyReview(email, password) {
   const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) throw error;
   session = data.session;
-  if (session) await flushQueue();
+  if (session) {
+    await flushQueue();
+    await syncMicroHabitState();
+  }
   changeHandler?.();
   return { ...getDailyReviewSyncStatus(), needsConfirmation: !session };
 }
