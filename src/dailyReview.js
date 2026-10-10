@@ -13,6 +13,36 @@ let flushPromise = null;
 let microHabitSyncPromise = null;
 let microHabitListenerReady = false;
 let microHabitSyncError = '';
+let reviewSyncError = '';
+
+async function syncReviewHistory() {
+  if (!session) return;
+  try {
+    const { data, error } = await getClient().from('user_donelist_entries')
+      .select('entry_date,content').eq('user_id', session.user.id);
+    if (error) throw error;
+    reviewSyncError = '';
+    const cloudDates = new Set((data || []).map(row => row.entry_date));
+    const queue = readQueue();
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      const date = key?.startsWith(LOCAL_PREFIX) ? key.slice(LOCAL_PREFIX.length)
+        : key?.startsWith('donelist-') ? key.slice('donelist-'.length) : '';
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || cloudDates.has(date) || queue[date]) continue;
+      const entry = readLocal(date);
+      if (FIELDS.some(field => entry[field]?.trim())) {
+        queue[date] = Object.fromEntries(FIELDS.map(field => [field, String(entry[field] || '')]));
+      }
+    }
+    writeQueue(queue);
+    for (const row of data || []) {
+      if (!queue[row.entry_date]) localStorage.setItem(localKey(row.entry_date), JSON.stringify({ ...blank(row.entry_date), ...row.content }));
+    }
+    await flushQueue();
+  } catch (error) {
+    reviewSyncError = error.message || String(error);
+  }
+}
 
 const localKey = date => `${LOCAL_PREFIX}${date}`;
 const monthKey = date => date.slice(0, 7);
@@ -89,7 +119,7 @@ async function syncMicroHabitState() {
   microHabitSyncPromise = (async () => {
     const supabase = getClient();
     const { data, error } = await supabase.from('user_micro_habit_states')
-      .select('state').maybeSingle();
+      .select('state').eq('user_id', session.user.id).maybeSingle();
     if (error) throw error;
     microHabitSyncError = '';
     if (data?.state && typeof data.state === 'object') {
@@ -136,12 +166,12 @@ export async function initDailyReviewSync(onChange) {
       session = nextSession;
       if (session) {
         setTimeout(() => {
-          void Promise.all([flushQueue(), syncMicroHabitState()]).finally(() => changeHandler?.());
+          void Promise.all([syncReviewHistory(), syncMicroHabitState()]).finally(() => changeHandler?.());
         }, 0);
       } else changeHandler?.();
     });
     if (session) {
-      await flushQueue();
+      await syncReviewHistory();
       await syncMicroHabitState();
     }
   } catch (error) {
@@ -157,7 +187,7 @@ export function getDailyReviewSyncStatus() {
   return {
     connected: true,
     email: session.user?.email || '',
-    message: microHabitSyncError
+    message: reviewSyncError ? `复盘同步失败：${reviewSyncError}` : microHabitSyncError
       ? `微习惯同步失败，请执行 supabase/micro-habits.sql：${microHabitSyncError}`
       : waiting ? `已登录 · ${waiting} 条等待同步` : '每日复盘与微习惯已连接 Supabase',
   };
@@ -169,7 +199,7 @@ export async function signInDailyReview(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
   session = data.session;
-  await flushQueue();
+  await syncReviewHistory();
   await syncMicroHabitState();
   changeHandler?.();
   return getDailyReviewSyncStatus();
@@ -182,7 +212,7 @@ export async function signUpDailyReview(email, password) {
   if (error) throw error;
   session = data.session;
   if (session) {
-    await flushQueue();
+    await syncReviewHistory();
     await syncMicroHabitState();
   }
   changeHandler?.();
@@ -205,7 +235,7 @@ export async function loadDailyReview(date) {
   if (!session) return local;
   try {
     const { data, error } = await getClient().from('user_donelist_entries')
-      .select('content').eq('entry_date', date).maybeSingle();
+      .select('content').eq('user_id', session.user.id).eq('entry_date', date).maybeSingle();
     if (error) throw error;
     if (!data?.content || typeof data.content !== 'object') return local;
     const merged = { ...local, ...data.content, date };
@@ -224,7 +254,7 @@ async function flushQueue() {
     const queue = readQueue();
     for (const [date, patch] of Object.entries(queue).sort(([a], [b]) => a.localeCompare(b))) {
       const { data, error: readError } = await supabase.from('user_donelist_entries')
-        .select('content').eq('entry_date', date).maybeSingle();
+        .select('content').eq('user_id', session.user.id).eq('entry_date', date).maybeSingle();
       if (readError) throw readError;
       const content = { ...(data?.content || {}), ...patch, date };
       const { error } = await supabase.from('user_donelist_entries').upsert({
@@ -234,6 +264,7 @@ async function flushQueue() {
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id,entry_date' });
       if (error) throw error;
+      reviewSyncError = '';
       const latest = readQueue();
       if (JSON.stringify(latest[date]) === JSON.stringify(patch)) {
         delete latest[date];
@@ -241,6 +272,7 @@ async function flushQueue() {
       }
     }
   })().catch(error => {
+    reviewSyncError = error.message || String(error);
     console.warn('[daily-review-sync]', error);
   }).finally(() => { flushPromise = null; });
   return flushPromise;
@@ -271,7 +303,7 @@ export async function listDailyReviewDates(month) {
     const last = `${month}-${String(days).padStart(2, '0')}`;
     try {
       const { data, error } = await getClient().from('user_donelist_entries')
-        .select('entry_date,content').gte('entry_date', first).lte('entry_date', last);
+        .select('entry_date,content').eq('user_id', session.user.id).gte('entry_date', first).lte('entry_date', last);
       if (error) throw error;
       for (const row of data || []) {
         const content = row.content || {};

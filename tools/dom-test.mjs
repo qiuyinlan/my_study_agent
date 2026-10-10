@@ -276,7 +276,13 @@ const sendAndWait = async (text, { timeout = 12000 } = {}) => {
 console.log('\n[1] 启动');
 
 script = [textStream('启动占位')];
+localStorage.setItem('msa.ui.v1', JSON.stringify({ currentPanel: 'tasks', workspaceMode: 'chat' }));
 await import('../src/main.js');
+await waitFor(() => $('#view-tasks')?.classList.contains('active') && $('.app')?.classList.contains('chat-mode'), { label: 'restore workspace' });
+check('Saved panel restored on boot', $('#view-tasks').classList.contains('active'));
+check('Saved chat mode restored on boot', $('.app').classList.contains('chat-mode'));
+await waitFor(() => $('.nav-btn[data-panel="today"]') && $('#view-tasks')?.innerHTML.length > 0, { label: 'boot complete' });
+await openPanel('today');
 await waitFor(() => $('#view-today')?.innerHTML.length > 0, { label: '今日面板渲染' });
 await waitFor(() => $('#messages')?.innerHTML.length > 0, { label: '对话区渲染' });
 await waitFor(() => $('#view-today [data-daily-review]') !== null, { label: '每日复盘和日历渲染' });
@@ -418,6 +424,11 @@ check('**下发的是全量工具（分组下发已移除）**',
 await openPanel('tasks');
 check('新建的任务出现在任务面板', ($('#view-tasks')?.textContent || '').includes('写论文引言'));
 check('任务显示 P0 优先级', ($('#view-tasks')?.textContent || '').includes('P0'));
+check('任务页提供最近七天日期切换', Boolean($('#view-tasks [data-task-date]')));
+check('任务页提供日历日期选择器', Boolean($('#view-tasks [data-task-date-picker]')));
+check('任务卡片提供完成勾选框', Boolean($('#view-tasks [data-task-check]')));
+check('手动任务状态不再显示可选下拉', !$('#task-state')?.matches('select'));
+check('新建任务的隐藏状态默认未完成', $('#task-state')?.value === 'INBOX');
 
 /* ══════════ 5. 代码动作路径 ══════════ */
 
@@ -461,6 +472,7 @@ for (const panel of ['today', 'learning', 'habits', 'life', 'records', 'tasks', 
   const rendered = (view?.innerHTML.length || 0) > 10;
   const navActive = $(`.nav-btn[data-panel="${['today', 'learning', 'habits', 'life'].includes(panel) ? panel : 'learning'}"]`)?.classList.contains('active');
   const titled = ($('#panel-title')?.textContent || '').length > 0;
+  check(`Panel ${panel} persisted`, JSON.parse(localStorage.getItem('msa.ui.v1')).currentPanel === panel);
   if (active && rendered && navActive && titled) panelOk++;
   else check(`面板 ${panel} 可切换并渲染`, false,
     `active=${active} rendered=${rendered} navActive=${navActive} titled=${titled}`);

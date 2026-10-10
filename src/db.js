@@ -150,7 +150,7 @@ export const DEFAULT_PROFILE = {
 
 /** 12 项档案里哪些是必填（其余可选，可后补） */
 export const REQUIRED_PROFILE_KEYS = [
-  'userName', 'supervisorName', 'supervisorImage', 'adhdStatus',
+  'userName', 'supervisorName', 'supervisorImage',
   'topProblems', 'focusAreas', 'procrastinationPatterns',
 ];
 export const OPTIONAL_PROFILE_KEYS = [
@@ -207,6 +207,7 @@ export async function saveProfile(patch) {
 /* ══════════════ 任务（§5.2 数据结构）══════════════ */
 
 export const DEFAULT_TASK_FIELDS = {
+  category: 'important',
   priority: 'P2',
   area: 'other',
   state: 'INBOX',
@@ -238,6 +239,10 @@ export function normalizeTask(input, cur = null) {
   t.title = String(t.title || '').trim();
   t.state = TASK_STATES[t.state] ? t.state : (cur?.state || 'INBOX');
   t.priority = PRIORITIES[t.priority] ? t.priority : (cur?.priority || 'P2');
+  const category = input?.category ?? cur?.category;
+  t.category = ['important', 'chore'].includes(category)
+    ? category
+    : (cur ? (['P0', 'P1'].includes(t.priority) ? 'important' : 'chore') : DEFAULT_TASK_FIELDS.category);
   t.area = AREAS[t.area] ? t.area : (cur?.area || 'other');
   t.createdAt = cur?.createdAt || now;
   t.updatedAt = now;
@@ -270,7 +275,12 @@ export async function upsertTask(input) {
   const task = normalizeTask(input, cur);
   if (!task.title) throw new Error('任务名称不能为空');
   await db.tasks.put(task);
+  notifyTaskChanged();
   return task;
+}
+
+export function notifyTaskChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('msa:tasks-changed'));
 }
 
 export async function setTaskState(id, state, extra = {}) {
@@ -286,10 +296,38 @@ export async function setTaskState(id, state, extra = {}) {
   if (state === 'DONE') patch.progress = 100;
 
   await db.tasks.update(id, patch);
+  notifyTaskChanged();
   return db.tasks.get(id);
 }
 
-export const deleteTask = id => db.tasks.delete(id);
+export async function setTaskCompletion(id, completed) {
+  const task = await db.tasks.get(id);
+  if (!task) throw new Error('任务不存在');
+  if (completed) {
+    if (task.state === 'DONE') return task;
+    await db.tasks.update(id, {
+      state: 'DONE', actualEnd: nowISO(), progress: 100,
+      completionState: task.state, completionProgress: task.progress ?? 0, updatedAt: nowISO(),
+    });
+  } else {
+    if (task.state !== 'DONE') return task;
+    const state = TASK_STATES[task.completionState] ? task.completionState : 'NEXT';
+    await db.tasks.update(id, {
+      state, actualEnd: '', progress: task.completionProgress ?? 0,
+      completionState: null, completionProgress: null, updatedAt: nowISO(),
+    });
+  }
+  notifyTaskChanged();
+  return db.tasks.get(id);
+}
+
+export async function deleteTask(id) {
+  const deleted = await getMeta('deletedTasks', {});
+  deleted[id] = nowISO();
+  await setMeta('deletedTasks', deleted);
+  await db.tasks.delete(id);
+  notifyTaskChanged();
+}
 
 /** 今日关键任务（§5.3：每天原则上只指定 1-3 个）。存在 meta 里，跨天自动失效。 */
 export async function getKeyTasks() {

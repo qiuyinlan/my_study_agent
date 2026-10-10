@@ -17,7 +17,7 @@ import { PANELS, showPanel, getCurrentPanel, setPanelSub, refreshPanel, panelBad
 import { computeToday, todayCards } from './planner.js';
 import { runTurn } from './agent.js';
 import {
-  ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession,
+  ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession, setTaskCompletion,
 } from './db.js';
 import { loadSettings } from './config.js';
 import {
@@ -30,6 +30,7 @@ import { startTimer, stopTimer, getActiveTimer } from './timer.js';
 import { confirmAllPoints, redeemReward, getLedger, awardPoints } from './ledger.js';
 import { upsertCheckin, setMedsEnabled } from './records.js';
 import { initDailyReviewSync } from './dailyReview.js';
+import { initTaskSync } from './taskSync.js';
 import { downloadMarkdownExport, buildMarkdownExport, markdownStats } from './exportmd.js';
 import { detectIntent, ALL_COMMANDS } from './commands.js';
 import { executeTool } from './tools.js';
@@ -64,6 +65,8 @@ function loadUiState() {
 function applyUiState({ persist = true } = {}) {
   document.body.classList.toggle('nav-collapsed', uiState.navCollapsed);
   document.body.classList.toggle('panel-collapsed', uiState.panelCollapsed);
+  uiState.currentPanel = getCurrentPanel();
+  uiState.workspaceMode = workspaceMode;
   const app = $('.app');
   app?.classList.toggle('chat-mode', workspaceMode === 'chat');
   app?.classList.toggle('chat-context', workspaceMode === 'chat' && chatContextOpen);
@@ -214,6 +217,7 @@ async function switchPanel(id) {
   }
   if (workspaceMode === 'chat') setWorkspaceMode('content');
   showPanel(id);
+  applyUiState();
   renderChrome();
 
   // 数据还没就绪时只切视图，别用残缺对象去渲染（会崩）
@@ -471,6 +475,11 @@ const handlers = {
   onLifeChanged: () => refreshAll(),
   onDaybookChanged: () => refreshAll(),
   onOpenTask: id => openTask(id, { onChanged: refreshAll, onKeyTask: refreshAll }),
+  onNewTask: () => openTask(null, { onChanged: refreshAll }),
+  onToggleTask: async (id, completed) => {
+    await setTaskCompletion(id, completed);
+    await refreshAll();
+  },
   onOpenTopic: id => openTopic(id, { onChanged: refreshAll }),
   onPickKey: () => openKeyTasks({ onChanged: refreshAll }),
   onReview: () => openReview({ onChanged: refreshAll }),
@@ -667,8 +676,11 @@ function wireTopbar() {
 
 async function boot() {
   loadUiState();
+  showPanel(uiState.currentPanel || 'today');
+  workspaceMode = uiState.workspaceMode === 'chat' ? 'chat' : 'content';
   applyUiState();
   await initDailyReviewSync(() => { void refreshAll(); });
+  await initTaskSync(() => { void refreshAll(); });
 
   wireComposer();
   wireTopbar();
@@ -679,7 +691,6 @@ async function boot() {
   profile = await getProfile();
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
 
-  showPanel('today');
   await ensureSession();
   await refreshAll();
   await refreshChat();

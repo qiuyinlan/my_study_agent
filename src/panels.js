@@ -6,7 +6,7 @@
 import { $, $$, esc, toast, stateBadge, priorityBadge, masteryDots, fmtMin, icon } from './ui.js';
 import {
   db, listTasks, listTopics, getProfile, profileCompletion, ADHD_STATUS,
-  PRIORITIES, AREAS, TASK_STATES, TASK_STATE_ORDER, DEFAULT_PROFILE,
+  PRIORITIES, AREAS, DEFAULT_PROFILE,
   getMeta, setKeyTasks,
 } from './db.js';
 import { dueTopics } from './srs.js';
@@ -17,6 +17,7 @@ import { estimationStats, listTimeEntries } from './timer.js';
 import * as daylog from './daylog.js';
 import { renderMicroHabit } from './microhabit.js';
 import { renderDailyReview } from './dailyReview.js';
+import { getTaskSyncStatus } from './taskSync.js';
 import { renderLifeNav } from './life.js';
 import {
   endOfToday, fmtDateTime, daysUntil, humanDue, dateStr,
@@ -358,34 +359,48 @@ function taskItemHtml(t, keyIds) {
   if (t.actualMin != null) times.push(`实际 ${t.actualMin} 分钟`);
   if (t.actualStart) times.push(`开始 ${fmtDateTime(t.actualStart)}`);
 
-  return `<div class="task-item ${t.state === 'DONE' ? 'done' : ''}" data-task="${t.id}">
-    <div class="t-head"><span class="t-name">${esc(t.title)}</span>${badges.join('')}</div>
+  return `<div class="task-item ${t.state === 'DONE' ? 'done' : ''}" data-task="${esc(t.id)}">
+    <div class="t-head"><button type="button" class="task-check ${t.state === 'DONE' ? 'checked' : ''}" data-task-check="${esc(t.id)}" aria-label="${t.state === 'DONE' ? '标记未完成' : '标记完成'}：${esc(t.title)}" aria-pressed="${t.state === 'DONE'}">${t.state === 'DONE' ? icon('check') : ''}</button><span class="t-name">${esc(t.title)}</span>${badges.join('')}</div>
     ${meta.length ? `<div class="t-meta">${meta.join('　·　')}</div>` : ''}
     ${times.length ? `<div class="t-meta">${times.join('　·　')}</div>` : ''}
     ${t.progress ? `<div class="progress"><i style="width:${Math.min(100, t.progress)}%"></i></div>` : ''}
   </div>`;
 }
 
+let selectedTaskDate = dateStr();
+
 export function renderTasks(s, h) {
   const el = $('#view-tasks');
   if (!el) return;
   setPanelSub(`${s.tasks.length} 个`);
-
-  if (!s.tasks.length) {
-    el.innerHTML = '<div class="empty">任务池是空的。<br>把要做的事说出来，帕尼尼会帮你拆到能开始为止。</div>';
-    return;
-  }
-
-  const out = [];
-  const SHOW = { DOING: 99, BLOCKED: 99, READY: 15, NEXT: 15, INBOX: 12, DEFERRED: 12, DONE: 10, CANCELLED: 5 };
-  for (const st of TASK_STATE_ORDER) {
-    const list = s.byState[st] || [];
-    if (!list.length) continue;
-    const shown = list.slice(0, SHOW[st] ?? 10);
-    out.push(`<div class="group-head">${TASK_STATES[st].label} <span class="n">${list.length}</span></div>`);
-    out.push(`<div class="list">${shown.map(t => taskItemHtml(t, s.keyTaskIds)).join('')}</div>`);
-    if (list.length > shown.length) out.push(`<div class="empty">…还有 ${list.length - shown.length} 个</div>`);
-  }
+  const out = ['<div class="tasks-workspace">'];
+  const sync = getTaskSyncStatus();
+  out.push(`<div class="task-toolbar"><span id="task-sync-status" class="task-sync-status">${esc(sync.message)}</span><button type="button" class="primary" data-new-task>＋ 新建任务</button></div>`);
+  const week = Array.from({ length: 7 }, (_, index) => addDays(dateStr(), index - 6));
+  const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
+  const dateCount = date => s.tasks.filter(task => task.dueAt?.slice(0, 10) === date || task.plannedStart?.slice(0, 10) === date).length;
+  out.push(`<div class="task-date-head"><strong>最近七天</strong><label class="task-calendar" title="选择具体日期">${icon('today')}<input type="date" value="${selectedTaskDate}" data-task-date-picker aria-label="选择任务日期"></label></div>`);
+  out.push(`<nav class="task-date-strip" aria-label="任务日期">${week.map(date => {
+    const d = new Date(`${date}T00:00:00`);
+    const today = date === dateStr();
+    return `<button type="button" class="task-date ${date === selectedTaskDate ? 'selected' : ''}" data-task-date="${date}" aria-pressed="${date === selectedTaskDate}"><small>${today ? '今天' : `周${shortDays[d.getDay()]}`}</small><strong>${Number(date.slice(-2))}</strong><i>${dateCount(date)} 项</i></button>`;
+  }).join('')}</nav>`);
+  const dayTasks = s.tasks.filter(task => task.dueAt?.slice(0, 10) === selectedTaskDate || task.plannedStart?.slice(0, 10) === selectedTaskDate);
+  const unplanned = s.tasks.filter(task => !task.dueAt && !task.plannedStart);
+  const appendGroups = (tasks, emptyText) => {
+    for (const [category, label] of [['important', '重要事情'], ['chore', '杂事']]) {
+      const grouped = tasks.filter(task => (task.category || (['P0', 'P1'].includes(task.priority) ? 'important' : 'chore')) === category);
+      out.push(`<section class="task-category"><div class="group-head">${label} <span class="n">${grouped.length}</span></div>`);
+      out.push(grouped.length
+        ? `<div class="list">${grouped.map(task => taskItemHtml(task, s.keyTaskIds)).join('')}</div>`
+        : `<div class="empty">${emptyText}</div>`);
+      out.push('</section>');
+    }
+  };
+  out.push(`<div class="task-section-title">${selectedTaskDate === dateStr() ? '今天的任务' : humanDate(selectedTaskDate)}</div>`);
+  appendGroups(dayTasks, '这一天没有排期任务');
+  out.push(`<div class="task-section-title">未安排日期 <span class="n">${unplanned.length}</span></div>`);
+  appendGroups(unplanned, '没有未安排的任务');
 
   /* 知识点放在任务面板底部，作为学习模块的一部分 */
   if (s.topics.length) {
@@ -396,10 +411,34 @@ export function renderTasks(s, h) {
         <div class="t-meta">掌握度 ${t.mastery ?? 0}/5　复习 ${t.reps || 0} 次　下次 ${(t.nextReviewAt || '').slice(0, 10) || '—'}</div>
       </div>`).join('')}</div>`);
   }
-
+  out.push('</div>');
   el.innerHTML = out.join('');
-  $$('[data-task]', el).forEach(n => { n.onclick = () => h.onOpenTask?.(n.dataset.task); });
+  el.querySelector('[data-new-task]')?.addEventListener('click', () => h.onNewTask?.());
+  el.querySelectorAll('[data-task-date]').forEach(button => button.addEventListener('click', () => {
+    selectedTaskDate = button.dataset.taskDate;
+    renderTasks(s, h);
+  }));
+  el.querySelector('[data-task-date-picker]')?.addEventListener('change', event => {
+    if (!event.target.value) return;
+    selectedTaskDate = event.target.value;
+    renderTasks(s, h);
+  });
+  el.querySelectorAll('[data-task-check]').forEach(button => button.addEventListener('click', event => {
+    event.stopPropagation();
+    h.onToggleTask?.(button.dataset.taskCheck, button.getAttribute('aria-pressed') !== 'true');
+  }));
+  $$('[data-task]', el).forEach(n => { n.onclick = event => {
+    if (event.target.closest('[data-task-check]')) return;
+    h.onOpenTask?.(n.dataset.task);
+  }; });
   $$('[data-topic]', el).forEach(n => { n.onclick = () => h.onOpenTopic?.(n.dataset.topic); });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('msa:task-sync-status', event => {
+    const node = $('#task-sync-status');
+    if (node) node.textContent = event.detail.message;
+  });
 }
 
 /* ══════════════ 打卡 ══════════════ */

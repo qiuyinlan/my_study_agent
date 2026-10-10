@@ -8,7 +8,7 @@
 //   · 实际耗时来自墙钟，不是自报
 //   · 自报耗时单独存一列，两者不一致时系统能发现，不抹平
 
-import { db, getMeta, setMeta, delMeta, upsertTask } from './db.js';
+import { db, getMeta, setMeta, delMeta, upsertTask, notifyTaskChanged } from './db.js';
 import { uid, nowISO, dateStr } from './util.js';
 
 /** 超过这个时长还在跑的计时器，基本可以认定是忘了停 */
@@ -86,6 +86,7 @@ export async function startTimer({ taskId = '', plannedMin = null, note = '' } =
       if (timer.plannedMin !== null) patch.estimateMin = timer.plannedMin;
       if (!patch.actualStart) patch.actualStart = timer.startedAt;
       await db.tasks.update(timer.taskId, patch);
+      notifyTaskChanged();
     }
   }
 
@@ -138,6 +139,7 @@ export async function stopTimer({ note = '', selfReportedMin = null, outcome = '
       patch.actualStart = task.actualStart || active.startedAt;
       if (outcome) patch.outcome = outcome;
       await db.tasks.update(entry.taskId, patch);
+      notifyTaskChanged();
     }
     await syncTaskMinutes(entry.taskId);
   }
@@ -189,7 +191,10 @@ export async function logTimeEntry({
   if (entry.taskId) {
     // 任务的实际耗时从记录派生，不做加法 —— 否则编辑/删除记录后就会算错
     await syncTaskMinutes(entry.taskId);
-    if (outcome) await db.tasks.update(entry.taskId, { outcome, updatedAt: nowISO() });
+    if (outcome) {
+      await db.tasks.update(entry.taskId, { outcome, updatedAt: nowISO() });
+      notifyTaskChanged();
+    }
   }
 
   return entry;
@@ -226,6 +231,7 @@ export async function syncTaskMinutes(taskId) {
     actualMin: entries.length ? total : null,
     updatedAt: nowISO(),
   });
+  notifyTaskChanged();
   return total;
 }
 

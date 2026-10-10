@@ -281,27 +281,6 @@ export function todayCards(s) {
     });
   }
 
-  /* 今天没指定关键任务 */
-  if (!s.keyTaskIds.length && s.active.length) {
-    cards.push({
-      level: 'warn',
-      title: '今天还没挑关键任务',
-      sub: `进行中有 ${s.active.length} 个，但今天只该挑 1-3 个`,
-      action: 'pick_key',
-    });
-  }
-
-  /* 关键任务进度 */
-  if (s.keyTaskIds.length) {
-    const done = s.keyTasks.filter(t => t.state === 'DONE').length;
-    cards.push({
-      level: done === s.keyTasks.length ? 'ok' : 'info',
-      title: `今日关键任务 ${done}/${s.keyTasks.length} 完成`,
-      sub: s.keyTasks.map(t => `${t.state === 'DONE' ? '✓' : '·'} ${t.title}`).join('　'),
-      action: 'pick_key',
-    });
-  }
-
   /* 即将到期 */
   for (const t of s.soon.slice(0, 2)) {
     const d = daysUntil(t.dueAt);

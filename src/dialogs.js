@@ -90,6 +90,7 @@ export async function openSettings({ onChange, profile }) {
     const onClose = async () => {
       dlg.removeEventListener('close', onClose);
       $('#btn-test').onclick = null;
+      $('#btn-settings-close').onclick = null;
       $('#set-baseurl').oninput = null;
       $('#btn-clear-chat').onclick = null;
       $('#btn-diag').onclick = null;
@@ -105,6 +106,7 @@ export async function openSettings({ onChange, profile }) {
       resolve(true);
     };
     dlg.addEventListener('close', onClose);
+    $('#btn-settings-close').onclick = () => dlg.close('cancel');
     $('#set-baseurl').oninput = updateBaseUrlNotice;
 
     const runReviewAuth = async action => {
@@ -211,7 +213,6 @@ export async function openSettings({ onChange, profile }) {
     };
 
     $('#btn-clear-chat').onclick = async () => {
-      if (!confirm('清空当前对话的记录？\n\n任务、打卡、积分、复盘、档案都会保留，只清对话和摘要。')) return;
       const sess = await getMeta('currentSession', null);
       if (sess) {
         await db.messages.where('sessionId').equals(sess).delete();
@@ -343,7 +344,8 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
   $('#task-id').value = task?.id || '';
   $('#task-name').value = task?.title || '';
   $('#task-goal').value = task?.goal || '';
-  fillSelect($('#task-state'), TASK_STATES, task?.state || 'INBOX');
+  $('#task-state').value = task?.state || 'INBOX';
+  $('#task-category').value = task?.category || (isNew || ['P0', 'P1'].includes(task?.priority) ? 'important' : 'chore');
   fillSelect($('#task-priority'), PRIORITIES, task?.priority || 'P2');
   fillSelect($('#task-area'), AREAS, task?.area || 'other');
   $('#task-due').value = task?.dueAt || '';
@@ -384,6 +386,7 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
           id: task?.id,
           title: name,
           goal: $('#task-goal').value.trim(),
+          category: $('#task-category').value,
           priority: $('#task-priority').value,
           area: $('#task-area').value,
           dueAt: $('#task-due').value,
@@ -428,7 +431,6 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
 
     $('#btn-del-task').onclick = async () => {
       if (!task) return;
-      if (!confirm(`删除任务「${task.title}」？\n\n时间记录、复盘、知识点都会保留。`)) return;
       await deleteTask(task.id);
       dlg.close('cancel');
       toast('任务已删除');
@@ -483,7 +485,6 @@ export async function openTopic(topicId = null, { onChanged } = {}) {
 
     $('#btn-del-topic').onclick = async () => {
       if (!topic) return;
-      if (!confirm(`删除知识点「${topic.name}」？学习日志会保留。`)) return;
       await deleteTopic(topic.id);
       dlg.close('cancel');
       toast('已删除');
@@ -586,7 +587,6 @@ export async function openSessions({ onChanged } = {}) {
     $$('[data-del]', el).forEach(btn => {
       btn.onclick = async e => {
         e.stopPropagation();
-        if (!confirm('删除这个会话及其全部对话记录？\n\n任务、打卡、积分、复盘、档案都会保留。')) return;
         await deleteSession(btn.dataset.del);
         toast('会话已删除', 'ok');
         await refresh();
@@ -812,7 +812,6 @@ export async function openPlan(planId = null, { onChanged } = {}) {
 
     $('#btn-del-plan').onclick = async () => {
       if (!plan) return;
-      if (!confirm(`删除规划 ${plan.code}「${plan.name}」？`)) return;
       await deletePlan(plan.id);
       dlg.close('cancel');
       toast('已删除');
@@ -888,7 +887,6 @@ export async function openSop(sopId = null, { onChanged } = {}) {
 
     $('#btn-del-sop').onclick = async () => {
       if (!sop) return;
-      if (!confirm(`删除 SOP「${sop.name}」？`)) return;
       await deleteSop(sop.id);
       dlg.close('cancel');
       toast('已删除');
@@ -1023,7 +1021,6 @@ export async function openTimeEntry(entryId = null, { onChanged, date = null } =
 
     $('#btn-del-time').onclick = async () => {
       if (!entry) return;
-      if (!confirm('删除这条专注记录？\n\n关联任务的实际耗时会跟着重算。')) return;
       await deleteTimeEntry(entry.id);
       dlg.close('cancel');
       toast('已删除', 'ok');
@@ -1087,7 +1084,6 @@ export async function openLogEntry(logId = null, { onChanged, date = null } = {}
 
     $('#btn-del-log').onclick = async () => {
       if (!rec) return;
-      if (!confirm('删除这条学习记录？知识点本身会保留。')) return;
       await deleteLog(rec.id);
       dlg.close('cancel');
       toast('已删除', 'ok');

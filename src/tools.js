@@ -931,6 +931,7 @@ const DEF = {
     id: S('已有任务的 id 或标题；新建时不传'),
     title: S('任务名称'),
     state: ENUM('状态，仅新建时用；改状态请用 set_task_state', Object.keys(TASK_STATES)),
+    category: ENUM('分类：important 重要事情，chore 杂事（简单、随手、不太抵触的事项）', ['important', 'chore']),
     priority: ENUM('优先级 P0 紧急且后果严重 / P1 重要 / P2 正常 / P3 可选', Object.keys(PRIORITIES)),
     area: ENUM('领域', Object.keys(AREAS)),
     goal: S('想达成什么，越具体越好'),
@@ -1125,7 +1126,7 @@ const DEF = {
   })],
 
   /* 档案 */
-  get_profile: ['查看用户档案（§4 的 12 项）。**你需要知道他的称呼、ADHD 状态、雷区、偏好，才能用对语气、说对话时，先调这个。**', P({})],
+  get_profile: ['查看用户档案。调用前先调取以了解用户填写的称呼、偏好和雷区；ADHD 状态是可选隐私信息，不要追问或推测，只在用户主动填写后用于调整建议。', P({})],
   update_profile: ['整理用户档案的待保存草稿。用户透露背景、目标、偏好、雷区、称呼时调用；工具会暂存草稿，你必须在聊天里展示并请求确认，收到确认后程序才落库。', P({
     userName: S('希望被如何称呼'),
     supervisorName: S('希望如何称呼监督员'),

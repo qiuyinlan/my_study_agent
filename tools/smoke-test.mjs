@@ -91,7 +91,14 @@ const t1 = await dbm.upsertTask({
 });
 eq('新任务默认 INBOX', t1.state, 'INBOX');
 eq('优先级已设置', t1.priority, 'P1');
+eq('新建任务默认归入重要事情', t1.category, 'important');
 check('未被直接标成 DONE', t1.state !== 'DONE');
+
+const chore = await dbm.upsertTask({ title: '整理桌面', category: 'chore', priority: 'P3' });
+eq('杂事分类可保存', chore.category, 'chore');
+eq('未分类旧任务按优先级回填', dbm.normalizeTask({ title: '旧任务', priority: 'P3' }, { id: 'legacy', priority: 'P3' }).category, 'chore');
+await dbm.deleteTask(chore.id);
+eq('删除任务会留下跨设备删除标记', Boolean((await dbm.getMeta('deletedTasks', {}))[chore.id]), true);
 
 let t = await dbm.setTaskState(t1.id, 'DOING');
 check('转 DOING 自动写入 actualStart（不靠模型记）', Boolean(t.actualStart));
@@ -112,6 +119,16 @@ check('非法状态被拒绝', threw);
 
 const t2 = await dbm.upsertTask({ title: '复习线代特征值', area: 'study', priority: 'P2' });
 eq('第二个任务是 INBOX', t2.state, 'INBOX');
+
+const checkboxTask = await dbm.upsertTask({ title: '勾选完成测试', state: 'READY', progress: 30 });
+await dbm.setTaskCompletion(checkboxTask.id, true);
+let checkedTask = await db.tasks.get(checkboxTask.id);
+eq('勾选任务会标记完成', checkedTask.state, 'DONE');
+eq('勾选前的状态和进度可恢复', checkedTask.completionState, 'READY');
+await dbm.setTaskCompletion(checkboxTask.id, false);
+checkedTask = await db.tasks.get(checkboxTask.id);
+eq('取消勾选会恢复任务状态', checkedTask.state, 'READY');
+eq('取消勾选会恢复原进度', checkedTask.progress, 30);
 
 /* 关键任务 */
 await dbm.setKeyTasks([t1.id, t2.id]);
@@ -520,6 +537,13 @@ check('非法字段被拒绝', threw);
 
 /* ══════════════ 9. 帕尼尼人设与能力声明 ══════════════ */
 console.log('\n[9] 人设、语气、能力声明');
+
+check('ADHD 状态不再是档案必填项', !dbm.REQUIRED_PROFILE_KEYS.includes('adhdStatus'));
+check('没有填写 ADHD 状态也能开始使用', dbm.profileCompletion({
+  userName: '小陈', supervisorName: '帕尼尼', supervisorImage: '男性青年',
+  topProblems: '任务启动困难', focusAreas: '学习', procrastinationPatterns: '刷手机',
+}).canStart);
+check('人设不会主动询问 ADHD 状态', persona.SAFETY_RULES.includes('不要主动询问或推测'));
 
 const prof = await dbm.saveProfile({
   userName: '小陈',

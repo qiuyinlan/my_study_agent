@@ -240,7 +240,7 @@ body.nav-collapsed .nav-foot { justify-content: center; }
 .panel-back { display:inline-flex; flex:0 0 auto; padding:5px 9px; font-size:11px; }
 .panel-back[hidden] { display:none; }
 .panel-body { flex: 1; overflow-y: auto; padding: 14px 16px 24px; }
-.panel-view { display: none; }
+.panel-view { display: none; width: 100%; max-width: 1120px; margin-inline: auto; }
 .panel-view.active { display: block; }
 
 /* 刷新时闪一下，让用户看见"更新发生了" */
@@ -407,13 +407,13 @@ body.panel-collapsed .app:not(.chat-mode) .panel {
   padding: 14px 32px 20px; border-top: 1px solid var(--line); background: var(--bg);
 }
 .composer textarea {
-  flex: 1; resize: none; max-height: 220px; min-height: 44px;
+  flex: 1; resize: none; max-height: 220px; min-height: 38px;
   background: var(--bg-sunken); border-color: var(--line);
-  border-radius: var(--r-lg); padding: 11px 15px;
-  font-size: 14.5px; line-height: 1.6;
+  border-radius: var(--r-lg); padding: 7px 12px;
+  font-size: 14px; line-height: 1.6;
 }
 .composer textarea::placeholder { color: var(--fg-faint); }
-.composer button { padding: 11px 18px; }
+.composer button { padding: 7px 14px; }
 #btn-depth { color: var(--fg-dim); }
 #btn-depth.active {
   background: var(--accent-soft); border-color: var(--accent-line);
@@ -450,11 +450,16 @@ body.panel-collapsed .app:not(.chat-mode) .panel {
 .task-item:hover { border-color: var(--accent-line); box-shadow: var(--shadow-1); }
 .task-item.done { opacity: .55; }
 .task-item .t-head { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.task-item .t-head { flex-wrap: nowrap; }
+.task-check { display:grid; place-items:center; width:22px; height:22px; min-width:22px; padding:0; border:1px solid #a9b9ac; border-radius:6px; background:#fff; color:#fff; }
+.task-check svg { width:14px; height:14px; }
+.task-check.checked { border-color:var(--accent); background:var(--accent); }
+.task-item .t-head .t-name { flex:1; }
 .task-item .t-name {
   font-weight: 600; font-size: 13px; flex: 1; min-width: 0;
   overflow-wrap: anywhere; line-height: 1.45;
 }
-.task-item .t-meta { color: var(--fg-dim); font-size: 11.5px; margin-top: 3px; line-height: 1.5; }
+.task-item .t-meta { color: var(--fg-dim); font-size: 11.5px; margin-top: 8px; line-height: 1.5; }
 .task-item .t-meta b { color: var(--danger); }
 
 .badge {
@@ -983,6 +988,25 @@ body {
 /* ── StudyAgent 原生生活模块 ── */
 .workspace-card { margin: 0 0 14px; padding: 16px; border: 1px solid #dce9dc; border-radius: 16px; background: rgba(255,255,255,.82); box-shadow: 0 6px 18px rgba(44,92,53,.05); }
 .learning-workspace { width:min(100%, 1280px); margin:0 auto; }
+.habit-workspace { width:min(100%, 1280px); margin:0 auto; }
+.tasks-workspace { width:min(100%, 1100px); margin:0 auto; }
+.task-toolbar { display:flex; justify-content:flex-end; margin:0 0 14px; }
+.task-sync-status { margin-right:auto; color:var(--fg-faint); font-size:11px; overflow-wrap:anywhere; }
+.task-date-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:0 0 8px; color:var(--fg-2); }
+.task-date-head > strong { font-size:13px; }
+.task-calendar { position:relative; display:grid; place-items:center; width:36px; height:36px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--fg-2); cursor:pointer; }
+.task-calendar svg { width:18px; height:18px; }
+.task-calendar input { position:absolute; inset:0; width:100%; height:100%; padding:0; opacity:0; cursor:pointer; }
+.task-date-strip { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; margin-bottom:20px; }
+.task-date { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-width:0; min-height:68px; padding:6px 2px; border:1px solid var(--line); border-radius:6px; background:#fff; }
+.task-date small { color:var(--fg-faint); font-size:10px; }
+.task-date strong { font-size:16px; line-height:1.2; }
+.task-date i { color:var(--fg-faint); font-size:9px; font-style:normal; white-space:nowrap; }
+.task-date.selected { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+.task-date.selected small, .task-date.selected i { color:var(--accent); }
+.task-section-title { margin:18px 0 8px; padding-bottom:7px; border-bottom:1px solid var(--line-soft); color:var(--fg); font-size:14px; font-weight:650; }
+.task-section-title .n { color:var(--fg-faint); font-size:12px; font-weight:500; }
+.task-category { margin-bottom:24px; }
 .learning-hero { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:14px; padding:18px; border:1px solid #dce9dc; border-radius:16px; background:linear-gradient(135deg,#e9f4e7,#ffffff); }
 .learning-hero h3 { margin:4px 0; color:#254e33; font-size:21px; }
 .learning-hero p { margin:0; color:#6d806f; font-size:12px; }
@@ -1163,9 +1187,12 @@ body {
   .messages { padding: 18px 16px 14px; gap: 16px; }
   .msg, .msg.user { max-width: 100%; }
   .composer { gap: 7px; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); }
-  .composer textarea { min-height: 42px; max-height: 32vh; padding: 10px 12px; font-size: 16px; }
-  .composer button { padding: 10px 12px; min-height: 42px; }
+  .composer textarea { min-height: 38px; max-height: 32vh; padding: 7px 10px; font-size: 16px; }
+  .composer button { padding: 7px 12px; min-height: 38px; }
   .daily-review-workspace { width: 100%; margin-top: 12px; gap: 12px; }
+  .task-date-strip { gap:4px; }
+  .task-date { min-height:62px; }
+  .task-date i { font-size:8px; }
   .daily-review-main { padding: 16px; }
   .daily-review-calendar { padding: 12px; }
   .daily-review-heading { margin-bottom: 14px; }
@@ -1185,7 +1212,7 @@ body {
 @media (max-width: 560px) {
   .topbar {
     height: auto; min-height: 52px; flex-wrap: wrap; gap: 4px 8px;
-    padding: max(8px, env(safe-area-inset-top)) 10px 7px;
+    padding: 4px 10px 7px;
   }
   .brand { min-height: 32px; }
   .actions { order: 2; width: 100%; max-width: 100%; overflow-x: auto; scrollbar-width: none; }

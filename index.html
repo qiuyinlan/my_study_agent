@@ -36,10 +36,10 @@
 
     <section class="panel" id="panel">
       <div class="panel-head">
+        <button class="ghost panel-back" id="btn-back-learning" title="返回学习工作台">← 返回学习</button>
         <h2 id="panel-title">今日</h2>
         <span class="sub" id="panel-sub"></span>
         <span class="updated" id="panel-updated"></span>
-        <button class="ghost panel-back" id="btn-back-learning" title="返回学习工作台">← 返回学习</button>
         <button class="icon-btn" id="btn-refresh-panel" title="立即刷新"></button>
         <button class="icon-btn" id="btn-collapse-panel" title="收起面板"></button>
       </div>
@@ -72,7 +72,7 @@
       <div class="pending-area" id="pending-area"></div>
       <form class="composer" id="composer">
         <textarea id="input" rows="1"
-          placeholder="跟帕尼尼说一句就开始。比如「今天要把线代第三章学完，但我一直没开始」／「我卡住了」／「小黑屋」（Enter 发送，Shift+Enter 换行）"></textarea>
+          placeholder="说点什么…"></textarea>
         <button type="button" id="btn-depth" title="深度模式：用推理模型做分析和讲解，这一轮不调工具">深度</button>
         <button type="submit" id="btn-send" class="primary">发送</button>
       </form>
@@ -112,6 +112,7 @@
 
     <div class="section-title">数据同步</div>
     <p class="hint">登录同一个 Supabase 账号后，每日复盘和微习惯会在设备间同步。首次启用微习惯同步前，请执行 supabase/micro-habits.sql。</p>
+    <p class="hint">任务也会在登录设备间同步。首次启用前，请执行 supabase/tasks.sql。</p>
     <div class="grid2">
       <label>邮箱<input type="email" id="review-sync-email" autocomplete="username"></label>
       <label>密码<input type="password" id="review-sync-password" autocomplete="current-password"></label>
@@ -155,6 +156,7 @@
 
     <div class="dlg-actions">
       <button type="button" class="ghost" id="btn-test">测试连接</button>
+      <button type="button" class="ghost" id="btn-settings-close">关闭</button>
       <span class="spacer"></span>
       <button type="button" class="ghost" id="btn-clear-chat">清空对话</button>
       <button value="ok" class="primary">保存</button>
@@ -202,11 +204,13 @@
       <textarea id="task-goal" rows="2" placeholder="例如：能独立推导并手写实现 logistic regression 的梯度下降"></textarea>
     </label>
 
-    <div class="grid3">
-      <label>状态<select id="task-state"></select></label>
+    <input type="hidden" id="task-state" value="INBOX">
+    <div class="grid2">
       <label>优先级<select id="task-priority"></select></label>
       <label>领域<select id="task-area"></select></label>
     </div>
+    <label>分类<select id="task-category"><option value="important">重要事情</option><option value="chore">杂事</option></select></label>
+    <small class="hint">杂事是简单、随手或不太抵触的事。</small>
 
     <div class="grid3">
       <label>截止日期<input type="date" id="task-due"></label>
@@ -306,6 +310,7 @@
     <label>ADHD 状态
       <select id="pf-adhd"></select>
     </label>
+    <small class="hint">可选。只用于你主动填写时调整建议，不填写也不影响使用，AI 不会主动追问。</small>
 
     <label>当前最困扰你的三个问题
       <textarea id="pf-problems" rows="2" placeholder="按顺序写，越具体越好"></textarea>

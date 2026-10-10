@@ -264,7 +264,7 @@ export function renderMicroHabit(el, { onChanged } = {}) {
   }));
   el.querySelectorAll('[data-habit-delete]').forEach(button => button.addEventListener('click', () => {
     const row = button.closest('[data-habit-row]');
-    if (!row || !confirm('删除这个微习惯？该习惯的历史打卡记录也会删除。')) return;
+    if (!row) return;
     changeMicroHabit({ action: 'delete', id: row.dataset.habitRow });
     renderMicroHabit(el, { onChanged });
     onChanged?.();
