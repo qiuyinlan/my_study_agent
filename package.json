@@ -1,0 +1,24 @@
+{
+  "name": "my-study-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "帕尼尼 · 纯静态纯本地的个人执行监督系统。零构建、浏览器直连 DeepSeek。",
+  "scripts": {
+    "serve": "python tools/serve.py",
+    "probe:ai": "node tools/cors-probe.mjs",
+    "check": "node tools/check.mjs",
+    "audit:tools": "node tools/tool-audit.mjs",
+    "cost:tools": "node tools/tool-cost.mjs",
+    "cost:prompt": "node tools/prompt-cost.mjs",
+    "test": "node tools/smoke-test.mjs",
+    "test:dom": "node tools/dom-test.mjs",
+    "verify": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/smoke-test.mjs",
+    "verify:all": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/smoke-test.mjs && node tools/dom-test.mjs",
+    "verify:served": "node tools/verify-served.mjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.2",
+    "jsdom": "^28.0.0"
+  }
+}

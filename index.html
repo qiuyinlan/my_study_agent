@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>帕尼尼 · 个人执行监督系统</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand"><span class="mark" aria-hidden="true"></span><span id="brand-name">帕尼尼</span></div>
+    <div class="stats" id="stats"></div>
+    <div class="actions">
+      <button class="ghost accent-new" id="btn-new-chat" title="开一个新对话">＋ 新对话</button>
+      <button class="ghost" id="btn-sessions" title="切换/管理对话">对话列表</button>
+      <button class="ghost" id="btn-export" title="导出结构化 Markdown，可迁移到别的 AI">导出</button>
+      <button class="ghost" id="btn-backup">备份</button>
+      <button class="ghost" id="btn-settings">设置</button>
+    </div>
+  </header>
+
+  <div class="timerbar" id="timerbar"></div>
+
+  <div class="body">
+    <nav class="nav" id="nav" aria-label="主导航">
+      <div class="nav-items" id="nav-items"></div>
+      <div class="nav-foot">
+        <button class="icon-btn" id="btn-collapse-nav" title="收起导航"></button>
+      </div>
+      <div class="resizer" id="resize-nav" title="拖动调整宽度"></div>
+    </nav>
+
+    <section class="panel" id="panel">
+      <div class="panel-head">
+        <h2 id="panel-title">今日</h2>
+        <span class="sub" id="panel-sub"></span>
+        <span class="updated" id="panel-updated"></span>
+        <button class="ghost panel-back" id="btn-back-learning" title="返回学习工作台">← 返回学习</button>
+        <button class="icon-btn" id="btn-refresh-panel" title="立即刷新"></button>
+        <button class="icon-btn" id="btn-collapse-panel" title="收起面板"></button>
+      </div>
+      <div class="panel-body" id="panel-body">
+        <div class="panel-view" id="view-today"></div>
+        <div class="panel-view" id="view-learning"></div>
+        <div class="panel-view" id="view-habits"></div>
+        <div class="panel-view" id="view-life"></div>
+        <div class="panel-view" id="view-records"></div>
+        <div class="panel-view" id="view-tasks"></div>
+        <div class="panel-view" id="view-checkin"></div>
+        <div class="panel-view" id="view-points"></div>
+        <div class="panel-view" id="view-plans"></div>
+        <div class="panel-view" id="view-sops"></div>
+        <div class="panel-view" id="view-reviews"></div>
+        <div class="panel-view" id="view-profile"></div>
+      </div>
+      <div class="resizer" id="resize-panel" title="拖动调整宽度"></div>
+    </section>
+
+    <button class="panel-reveal" id="btn-reveal-panel" title="展开面板"></button>
+
+    <section class="chat">
+      <div class="chat-head">
+        <strong>AI 对话</strong>
+        <span>把问题、计划和当天状态交给帕尼尼一起处理</span>
+        <button class="icon-btn" id="btn-chat-context" type="button" title="显示内容侧栏" aria-label="显示内容侧栏"></button>
+      </div>
+      <div class="messages" id="messages"></div>
+      <div class="pending-area" id="pending-area"></div>
+      <form class="composer" id="composer">
+        <textarea id="input" rows="1"
+          placeholder="跟帕尼尼说一句就开始。比如「今天要把线代第三章学完，但我一直没开始」／「我卡住了」／「小黑屋」（Enter 发送，Shift+Enter 换行）"></textarea>
+        <button type="button" id="btn-depth" title="深度模式：用推理模型做分析和讲解，这一轮不调工具">深度</button>
+        <button type="submit" id="btn-send" class="primary">发送</button>
+      </form>
+    </section>
+  </div>
+</div>
+
+<!-- ═══════════ 设置 ═══════════ -->
+<dialog id="dlg-settings">
+  <form method="dialog" class="dlg">
+    <h3>设置</h3>
+
+    <label>DeepSeek API Key
+      <input type="password" id="set-key" placeholder="sk-..." autocomplete="off" spellcheck="false">
+    </label>
+    <small class="hint">只保存在这台电脑的浏览器里，页面直接连 DeepSeek 官方接口，中间没有代理。</small>
+
+    <label class="row">
+      <input type="checkbox" id="set-persist" checked>
+      <span>把 Key 持久化到 localStorage（取消勾选则只保留到关闭浏览器）</span>
+    </label>
+
+    <label>API 地址
+      <input type="text" id="set-baseurl" spellcheck="false">
+    </label>
+    <small class="hint" id="baseurl-note"></small>
+
+    <div class="grid2">
+      <label>对话模型<input type="text" id="set-model" spellcheck="false"></label>
+      <label>深度模型<input type="text" id="set-reason-model" spellcheck="false"></label>
+    </div>
+
+    <label class="row">
+      <input type="checkbox" id="set-tools" checked>
+      <span>启用工具调用（让帕尼尼能真的读写记录，而不只是动嘴）</span>
+    </label>
+
+    <div class="section-title">每日复盘同步</div>
+    <p class="hint">使用微习惯 Website 的同一 Supabase 项目和账号；复盘与 Website 日志共用日期记录。</p>
+    <div class="grid2">
+      <label>邮箱<input type="email" id="review-sync-email" autocomplete="username"></label>
+      <label>密码<input type="password" id="review-sync-password" autocomplete="current-password"></label>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="review-sync-login">登录</button>
+      <button type="button" class="ghost" id="review-sync-signup">注册</button>
+      <button type="button" class="ghost" id="review-sync-logout">退出账号</button>
+    </div>
+    <div class="hint" id="review-sync-status" aria-live="polite"></div>
+
+    <div class="section-title">表达强度</div>
+    <label>强度档位
+      <select id="set-tone">
+        <option value="1">1 · 温和陪学</option>
+        <option value="2">2 · 偏温和但要结果</option>
+        <option value="3">3 · 冷峻克制（不说脏话）</option>
+        <option value="4">4 · 强硬（允许冷嘲）</option>
+        <option value="5">5 · 完全放开</option>
+      </select>
+    </label>
+    <label class="row">
+      <input type="checkbox" id="set-profanity">
+      <span>允许使用适度粗口（只表达态度，不攻击人）</span>
+    </label>
+    <small class="hint">无论强度如何，帕尼尼都不会攻击你的人格、身体、身份或心理健康，也不会用羞辱替代任务管理。</small>
+
+    <div class="status" id="set-status"></div>
+    <div class="hint" id="usage-line"></div>
+
+    <div class="section-title">出了问题？跑一次诊断</div>
+    <div class="hint" style="margin-bottom:8px">
+      诊断会用真实的请求去打一次 API，并把原始响应抓下来。
+      分步检查：鉴权 → 基础对话 → 带工具 → 流式。<b>哪一步先失败，问题就在哪里。</b>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="btn-diag">开始诊断</button>
+      <button type="button" class="ghost" id="btn-diag-copy" disabled>复制报告</button>
+    </div>
+    <div id="diag-result" class="diag-result"></div>
+
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="btn-test">测试连接</button>
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="btn-clear-chat">清空对话</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══════════ 备份 ═══════════ -->
+<dialog id="dlg-backup">
+  <form method="dialog" class="dlg">
+    <h3>数据备份</h3>
+    <p class="hint">所有记录都存在浏览器的 IndexedDB 里。清缓存、换浏览器、换电脑都会丢，请定期导出。</p>
+
+    <div class="mirror-box">
+      <div>
+        <strong>自动镜像</strong>
+        <small class="hint" id="mirror-state">未开启</small>
+      </div>
+      <button type="button" class="ghost" id="btn-mirror-on">选择镜像文件</button>
+      <button type="button" class="ghost" id="btn-mirror-off">停止</button>
+    </div>
+    <small class="hint" id="mirror-help"></small>
+
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="btn-export-json">导出 JSON</button>
+      <button type="button" class="ghost" id="btn-import">导入 JSON</button>
+      <span class="spacer"></span>
+      <button value="ok" class="primary">关闭</button>
+    </div>
+    <div class="status" id="backup-status"></div>
+  </form>
+</dialog>
+
+<!-- ═══════════ 任务编辑 ═══════════ -->
+<dialog id="dlg-task">
+  <form method="dialog" class="dlg">
+    <h3 id="task-title">新建任务</h3>
+    <input type="hidden" id="task-id">
+
+    <label>任务名称
+      <input type="text" id="task-name" placeholder="例如：把 CS229 第 3 章学完" required>
+    </label>
+
+    <label>想达成什么（越具体，拆解越准）
+      <textarea id="task-goal" rows="2" placeholder="例如：能独立推导并手写实现 logistic regression 的梯度下降"></textarea>
+    </label>
+
+    <div class="grid3">
+      <label>状态<select id="task-state"></select></label>
+      <label>优先级<select id="task-priority"></select></label>
+      <label>领域<select id="task-area"></select></label>
+    </div>
+
+    <div class="grid3">
+      <label>截止日期<input type="date" id="task-due"></label>
+      <label>计划开始<input type="datetime-local" id="task-planned"></label>
+      <label>预计耗时（分钟）<input type="number" id="task-estimate" min="0" step="5"></label>
+    </div>
+
+    <label>下一步行动（§6 要求：具体到看着就知道怎么做）
+      <input type="text" id="task-next" placeholder="例如：打开教材翻到 42 页，读第一段">
+    </label>
+
+    <label>当前阻碍（状态为 BLOCKED 时必填）
+      <input type="text" id="task-blocker" placeholder="例如：不知道梯度怎么推，卡在链式法则">
+    </label>
+
+    <div class="grid2">
+      <label>进度 %<input type="number" id="task-progress" min="0" max="100" step="5"></label>
+      <label>完成情况<input type="text" id="task-outcome" placeholder="做成什么样了"></label>
+    </div>
+
+    <label>复盘结论
+      <textarea id="task-review" rows="2" placeholder="下次怎么做得更好"></textarea>
+    </label>
+
+    <div class="status" id="task-meta"></div>
+
+    <div class="dlg-actions">
+      <button type="button" class="ghost danger" id="btn-del-task">删除</button>
+      <button type="button" class="ghost" id="btn-key-task">设为今日关键</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">取消</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══════════ 知识点编辑 ═══════════ -->
+<dialog id="dlg-topic">
+  <form method="dialog" class="dlg">
+    <h3 id="topic-title">新建知识点</h3>
+    <input type="hidden" id="topic-id">
+    <label>知识点<input type="text" id="topic-name" placeholder="例如：极大似然估计" required></label>
+    <label>归属任务<select id="topic-task"></select></label>
+    <label>备注<textarea id="topic-note" rows="3" placeholder="卡在哪、关键结论是什么"></textarea></label>
+    <div class="status" id="topic-meta"></div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost danger" id="btn-del-topic">删除</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">取消</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══════════ 复习 ═══════════ -->
+<dialog id="dlg-review">
+  <div class="dlg">
+    <h3>复习</h3>
+    <div id="review-body"></div>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button type="button" class="ghost" onclick="this.closest('dialog').close()">关闭</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══════════ 会话 ═══════════ -->
+<dialog id="dlg-session">
+  <div class="dlg">
+    <h3>会话</h3>
+    <p class="hint">默认只有一个长会话，记忆最连贯。只有当你想把某个话题单独拎出来时才需要新建。</p>
+    <p class="hint">长期记忆、任务、打卡、积分、规划、SOP 都是<b>全局共享</b>的 —— 换会话不会丢，只有对话上下文分开。</p>
+    <div id="session-list" class="list"></div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="btn-new-session">＋ 新建会话</button>
+      <span class="spacer"></span>
+      <button type="button" class="ghost" onclick="this.closest('dialog').close()">关闭</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══════════ 档案（§四 初始化）═══════════ -->
+<dialog id="dlg-profile">
+  <form method="dialog" class="dlg">
+    <h3>用户档案</h3>
+    <div class="status" id="profile-status"></div>
+
+    <div class="grid2">
+      <label>希望我如何称呼你<input type="text" id="pf-username" placeholder="名字或外号"></label>
+      <label>你希望如何称呼监督员<input type="text" id="pf-supervisor" placeholder="帕尼尼"></label>
+    </div>
+
+    <label>偏好的监督员性别或形象
+      <input type="text" id="pf-image" placeholder="例如：男性青年">
+    </label>
+
+    <label>ADHD 状态
+      <select id="pf-adhd"></select>
+    </label>
+
+    <label>当前最困扰你的三个问题
+      <textarea id="pf-problems" rows="2" placeholder="按顺序写，越具体越好"></textarea>
+    </label>
+
+    <label>个人背景与当前情况
+      <textarea id="pf-about" rows="3" placeholder="记录你主动分享、以后对话可能用得上的背景"></textarea>
+    </label>
+
+    <label>个人目标
+      <textarea id="pf-goals" rows="2" placeholder="记录你明确提到的长期或阶段目标"></textarea>
+    </label>
+
+    <label>希望重点监督哪些事
+      <textarea id="pf-focus" rows="2" placeholder="例如：每天开始学习、别熬夜、论文推进"></textarea>
+    </label>
+
+    <label>最容易出现的拖延行为
+      <textarea id="pf-procrast" rows="2" placeholder="例如：一坐下先刷手机、任务太大就不动"></textarea>
+    </label>
+
+    <div class="section-title">以下可选，可以以后补充</div>
+
+    <label>最有效的奖励方式
+      <input type="text" id="pf-reward" placeholder="例如：看一集剧、买杯咖啡">
+    </label>
+
+    <label>可接受的提醒或纠偏方式
+      <input type="text" id="pf-corrections" placeholder="例如：可以直接说，别绕弯子">
+    </label>
+
+    <label>用三个词描述自己
+      <input type="text" id="pf-selfwords" placeholder="例如：拖延、敏感、想变好">
+    </label>
+
+    <label>不喜欢的表达方式（雷区，每行一条）
+      <textarea id="pf-taboos" rows="2" placeholder="例如：不要拿我跟别人比&#10;不要在我情绪差的时候讲道理"></textarea>
+    </label>
+
+    <label>其他需求
+      <textarea id="pf-other" rows="2"></textarea>
+    </label>
+
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="btn-pf-onboarded">标记初始化完成</button>
+      <span class="spacer"></span>
+      <button value="ok" class="primary">保存档案</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══════════ 选今日关键任务 ═══════════ -->
+<dialog id="dlg-key">
+  <div class="dlg">
+    <h3>今日关键任务</h3>
+    <p class="hint">§5.3：每天原则上只指定 1-3 个。不要把整个任务池塞进今天。</p>
+    <div id="key-list" class="list"></div>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button type="button" class="ghost" onclick="this.closest('dialog').close()">关闭</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- ═══════════ 规划编辑 ═══════════ -->
+<dialog id="dlg-plan">
+  <form method="dialog" class="dlg">
+    <h3 id="plan-title">新建规划</h3>
+    <input type="hidden" id="plan-id">
+    <label>规划名称<input type="text" id="plan-name" placeholder="例如：考试复习计划" required></label>
+    <div class="grid2">
+      <label>可用时间（分钟）<input type="number" id="plan-available" min="0" step="15" placeholder="例如 240"></label>
+      <label>截止<input type="text" id="plan-deadline" placeholder="例如 两周后 / 6月20日"></label>
+    </div>
+    <label>目标<textarea id="plan-goal" rows="2"></textarea></label>
+    <label>任务项（每行一条，格式：内容 | 启动动作 | 预计分钟）
+      <textarea id="plan-items" rows="4" placeholder="推导梯度下降 | 打开笔记翻到上次的公式 | 40"></textarea>
+    </label>
+    <label>可能的阻碍<input type="text" id="plan-risks" placeholder="逗号分隔"></label>
+    <label>备用方案<input type="text" id="plan-fallback"></label>
+    <label>完成标准<input type="text" id="plan-criteria"></label>
+    <div class="status" id="plan-meta"></div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost danger" id="btn-del-plan">删除</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">取消</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══════════ SOP 编辑 ═══════════ -->
+<dialog id="dlg-sop">
+  <form method="dialog" class="dlg">
+    <h3 id="sop-title">新建 SOP</h3>
+    <input type="hidden" id="sop-id">
+    <label>SOP 名称<input type="text" id="sop-name" required placeholder="例如：每天开始学习"></label>
+    <div class="grid2">
+      <label>适用场景<input type="text" id="sop-scene" placeholder="例如：晚上坐下但不想动的时候"></label>
+      <label>预计耗时（分钟）<input type="number" id="sop-estimate" min="0" step="5"></label>
+    </div>
+    <label>执行目标<input type="text" id="sop-goal" placeholder="例如：把自己弄到书桌前并开始第一道题"></label>
+    <label><b>一分钟启动版（必填）</b>
+      <input type="text" id="sop-quick" placeholder="例如：只把书翻开，放在桌上，然后回来报告">
+    </label>
+    <label>所需材料（逗号分隔）<input type="text" id="sop-materials"></label>
+    <label>执行前准备（每行一条）<textarea id="sop-prep" rows="2"></textarea></label>
+    <label>详细步骤（每行一条）<textarea id="sop-steps" rows="5"></textarea></label>
+    <label>常见阻碍（每行一条）<textarea id="sop-blockers" rows="2"></textarea></label>
+    <label>异常处理<input type="text" id="sop-exceptions"></label>
+    <label>完成标准<input type="text" id="sop-criteria"></label>
+    <label>检查清单（每行一条）<textarea id="sop-checklist" rows="3"></textarea></label>
+    <label>复盘与改进<input type="text" id="sop-review"></label>
+    <div class="status" id="sop-meta"></div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost danger" id="btn-del-sop">删除</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">取消</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══════════ 专注记录（编辑/补记）═══════════ -->
+<dialog id="dlg-time">
+  <form method="dialog" class="dlg">
+    <h3 id="time-title">编辑专注记录</h3>
+    <input type="hidden" id="time-id">
+
+    <div class="grid2">
+      <label>开始时间<input type="datetime-local" id="time-start"></label>
+      <label>结束时间<input type="datetime-local" id="time-end"></label>
+    </div>
+
+    <div class="grid2">
+      <label>实际时长（分钟）
+        <input type="number" id="time-minutes" min="0" max="1440" step="1" placeholder="留空则按起止时间算">
+      </label>
+      <label>关联任务<select id="time-task"></select></label>
+    </div>
+    <small class="hint" id="time-derived"></small>
+
+    <label>备注<input type="text" id="time-note" placeholder="这段时间在做什么"></label>
+    <label>完成情况<input type="text" id="time-outcome" placeholder="做到哪一步"></label>
+
+    <div class="status" id="time-meta"></div>
+
+    <div class="dlg-actions">
+      <button type="button" class="ghost danger" id="btn-del-time">删除</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">取消</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ═══════════ 学习记录（编辑/补记）═══════════ -->
+<dialog id="dlg-log">
+  <form method="dialog" class="dlg">
+    <h3 id="log-title">编辑学习记录</h3>
+    <input type="hidden" id="log-id">
+
+    <div class="grid2">
+      <label>日期<input type="date" id="log-date"></label>
+      <label>时长（分钟）<input type="number" id="log-minutes" min="0" max="1440" step="1"></label>
+    </div>
+
+    <label>知识点 / 标题<input type="text" id="log-topic" placeholder="例如：极大似然估计"></label>
+    <label>做了什么<textarea id="log-what" rows="2" placeholder="看了第三节并手推了一遍"></textarea></label>
+    <label>卡点<textarea id="log-blockers" rows="2" placeholder="卡在哪里"></textarea></label>
+    <label>关联任务<select id="log-task"></select></label>
+
+    <div class="status" id="log-meta"></div>
+
+    <div class="dlg-actions">
+      <button type="button" class="ghost danger" id="btn-del-log">删除</button>
+      <span class="spacer"></span>
+      <button value="cancel" class="ghost">取消</button>
+      <button value="ok" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script defer src="supabase-config.js"></script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
