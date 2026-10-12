@@ -215,12 +215,15 @@ textarea { resize: vertical; }
   display: flex; justify-content: flex-end;
 }
 
+/* The top-left menu is the single navigation collapse control. */
+.nav-foot { display: none; }
+
 /* 收起状态：只剩图标 */
-body.nav-collapsed .nav { width: var(--rail-w); padding-left: 6px; padding-right: 6px; }
-body.nav-collapsed .nav-label,
-body.nav-collapsed .nav-badge { display: none; }
-body.nav-collapsed .nav-btn { justify-content: center; padding: 8px 0; }
-body.nav-collapsed .nav-foot { justify-content: center; }
+body.nav-collapsed .nav {
+  width: 0; flex-basis: 0; padding: 0; border-right: 0;
+  min-width: 0; visibility: hidden;
+}
+body.nav-collapsed .nav > * { display: none; }
 
 /* ═══════════ 面板 ═══════════ */
 
@@ -847,15 +850,14 @@ dialog::backdrop { background: rgba(16,24,40,.32); }
 @media (max-width: 840px) {
   .body { flex-direction: column; }
   .nav {
-    width: 100%; flex-direction: row; align-items: center;
+    width: 100%; flex-direction: column; align-items: stretch;
     border-right: none; border-bottom: 1px solid var(--line);
-    padding: 6px 8px; overflow-x: auto; gap: 2px;
+    padding: 6px 8px; overflow-y: auto; gap: 2px;
   }
-  .nav-items { flex-direction: row; flex: 0 0 auto; }
-  .nav-btn { width: auto; padding: 6px 10px; }
+  .nav-items { flex-direction: column; flex: 0 0 auto; }
+  .nav-btn { width: 100%; padding: 7px 10px; }
   .nav-foot { border: none; margin: 0; padding: 0; }
-  body.nav-collapsed .nav { width: 100%; }
-  body.nav-collapsed .nav-label { display: inline; }
+  body.nav-collapsed .nav { width: 0; }
   .panel { width: 100%; max-height: 40vh; border-right: none; border-bottom: 1px solid var(--line); }
   body.panel-collapsed .panel { max-height: 0; }
   .panel-reveal { display: none !important; }
@@ -866,6 +868,8 @@ body.topbar-collapsed .topbar { height: 40px; min-height: 40px; flex-wrap: nowra
 body.topbar-collapsed .topbar .brand { gap: 4px; }
 body.topbar-collapsed .topbar .brand .mark,
 body.topbar-collapsed .topbar .brand #brand-name,
+body.topbar-collapsed .topbar .brand #btn-new-chat,
+body.topbar-collapsed .topbar .brand #btn-sessions,
 body.topbar-collapsed .topbar .stats,
 body.topbar-collapsed .topbar .actions,
 body.topbar-collapsed .topbar .chat-actions { display: none; }
@@ -1177,9 +1181,8 @@ body {
 @media (max-width: 840px) {
   .app { height: 100vh; height: 100dvh; min-height: 100svh; }
   .body { position: relative; overflow: hidden; }
-  .nav { flex: 0 0 auto; min-height: 54px; }
-  .nav-items { min-width: 0; overflow-x: auto; scrollbar-width: none; }
-  .nav-items::-webkit-scrollbar { display: none; }
+  .nav { flex: 0 0 auto; min-height: 0; max-height: 260px; }
+  .nav-items { min-width: 0; overflow: visible; }
   .nav-btn { flex: 0 0 auto; min-height: 42px; }
   .nav-foot, #resize-nav, #resize-panel { display: none; }
   .panel { width: 100%; flex: 1 1 auto; min-height: 0; max-height: none; }
@@ -1210,6 +1213,11 @@ body {
   .grid2, .grid3 { grid-template-columns: 1fr; }
   .toast-wrap { left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); }
   .toast { max-width: none; }
+}
+
+@media (max-width: 840px) {
+  body.nav-collapsed .nav { width: 0; max-height: 0; min-height: 0; padding: 0; }
+  body.nav-collapsed .nav > * { display: none; }
 }
 
 @media (max-width: 560px) {

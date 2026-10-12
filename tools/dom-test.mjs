@@ -358,7 +358,8 @@ check('顶栏不再显示返回内容和显示内容文字按钮',
   $('#btn-return-content') === null && !$$('.workspace-switch').length);
 check('聊聊我和历史记录位于对话操作区',
   $('#btn-about-me')?.parentElement === $('.chat-actions')
-    && $('#btn-sessions')?.parentElement === $('.chat-actions'));
+    && $('#btn-sessions')?.parentElement === $('.brand')
+    && $('#btn-sessions')?.previousElementSibling?.id === 'btn-new-chat');
 check('新对话、历史记录和设置使用图标按钮',
   ['#btn-new-chat', '#btn-sessions', '#btn-settings']
     .every(sel => $(sel)?.querySelector('svg') && !$(sel).textContent.trim()));
@@ -381,6 +382,7 @@ await wait(60);
 check('顶栏可折叠且状态持久化', document.body.classList.contains('topbar-collapsed')
   && JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').topbarCollapsed === true);
 check('顶栏折叠后按钮标签更新', $('#btn-collapse-topbar')?.getAttribute('aria-label') === '展开顶栏');
+check('收起同时隐藏左侧导航', document.body.classList.contains('nav-collapsed'));
 check('顶栏折叠按钮位于品牌图标之前',
   $('#btn-collapse-topbar')?.parentElement === $('.brand')
     && $('#btn-collapse-topbar')?.nextElementSibling?.id === 'btn-new-chat');

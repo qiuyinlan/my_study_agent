@@ -64,6 +64,10 @@ let aboutInterview = { active: false, startedAt: null };
 function loadUiState() {
   try {
     uiState = { ...uiState, ...JSON.parse(localStorage.getItem(UI_KEY) || '{}') };
+    if (uiState.navCollapsed || uiState.topbarCollapsed) {
+      uiState.navCollapsed = true;
+      uiState.topbarCollapsed = true;
+    }
   } catch { /* 用默认值 */ }
   try {
     const saved = JSON.parse(localStorage.getItem(ABOUT_ME_KEY) || '{}');
@@ -110,6 +114,15 @@ function applyUiState({ persist = true } = {}) {
   if (persist) {
     try { localStorage.setItem(UI_KEY, JSON.stringify(uiState)); } catch { /* 无痕模式 */ }
   }
+}
+
+function setNavigationCollapsed(collapsed) {
+  const value = Boolean(collapsed);
+  // The menu button controls the whole left navigation chrome. Keep the
+  // legacy state fields in sync so existing saved preferences continue to work.
+  uiState.navCollapsed = value;
+  uiState.topbarCollapsed = value;
+  applyUiState();
 }
 
 /**
@@ -672,8 +685,7 @@ function wireComposer() {
 
 function wireTopbar() {
   $('#btn-collapse-topbar').onclick = () => {
-    uiState.topbarCollapsed = !uiState.topbarCollapsed;
-    applyUiState();
+    setNavigationCollapsed(!uiState.navCollapsed);
   };
   $('#btn-about-me').onclick = async () => {
     if (busy) { toast('等当前对话说完再开始访谈', 'warn'); return; }
@@ -716,8 +728,7 @@ function wireTopbar() {
 
   /* 折叠：导航和面板各自独立，状态持久化 */
   $('#btn-collapse-nav').onclick = () => {
-    uiState.navCollapsed = !uiState.navCollapsed;
-    applyUiState();
+    setNavigationCollapsed(!uiState.navCollapsed);
   };
   $('#btn-collapse-panel').onclick = () => {
     uiState.panelCollapsed = true;
