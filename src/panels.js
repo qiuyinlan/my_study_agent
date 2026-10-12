@@ -27,6 +27,7 @@ import {
 /** 导航项的 id 同时就是图标名（见 ui.js 的 ICON_PATHS） */
 export const PANELS = [
   { id: 'chat', title: 'AI 对话' },
+  { id: 'tasks', title: '任务' },
   { id: 'today', title: '今日' },
   { id: 'learning', title: '学习' },
   { id: 'habits', title: '微习惯' },
@@ -36,7 +37,6 @@ export const PANELS = [
 const PANEL_META = [
   ...PANELS,
   { id: 'records', title: '日志' },
-  { id: 'tasks', title: '任务' },
   { id: 'checkin', title: '打卡' },
   { id: 'points', title: '积分' },
   { id: 'plans', title: '计划' },
@@ -375,10 +375,20 @@ let selectedTaskDate = dateStr();
 export function renderTasks(s, h) {
   const el = $('#view-tasks');
   if (!el) return;
-  setPanelSub(`${s.tasks.length} 个`);
+  const pendingTasks = s.tasks.filter(task => !['DONE', 'CANCELLED'].includes(task.state));
+  const categoryOf = task => task.category || (['P0', 'P1'].includes(task.priority) ? 'important' : 'chore');
+  const pendingImportant = pendingTasks.filter(task => categoryOf(task) === 'important').length;
+  const pendingChores = pendingTasks.filter(task => categoryOf(task) === 'chore').length;
+  setPanelSub(`待完成 ${pendingImportant}｜${pendingChores}`);
   const out = ['<div class="tasks-workspace">'];
   const sync = getTaskSyncStatus();
-  out.push(`<div class="task-toolbar"><span id="task-sync-status" class="task-sync-status">${esc(sync.message)}</span><button type="button" class="primary" data-new-task>＋ 新建任务</button></div>`);
+  out.push(`<div class="task-toolbar"><div class="task-summary" aria-label="待完成任务数量"><strong>待完成</strong><span data-pending-important>主要任务 ${pendingImportant}</span><span data-pending-chore>杂事 ${pendingChores}</span></div><span id="task-sync-status" class="task-sync-status">${esc(sync.message)}</span><button type="button" class="primary" data-new-task>＋ 新建任务</button></div>`);
+  const keyTasks = s.tasks.filter(task => s.keyTaskIds.includes(task.id));
+  out.push('<section class="task-category"><div class="group-head">今日关键任务 <span class="n">' + keyTasks.length + '</span></div>');
+  out.push(keyTasks.length
+    ? `<div class="list">${keyTasks.map(task => taskItemHtml(task, s.keyTaskIds)).join('')}</div>`
+    : '<div class="empty">今天还没有设关键任务</div>');
+  out.push('</section>');
   const week = Array.from({ length: 7 }, (_, index) => addDays(dateStr(), index - 6));
   const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
   const dateCount = date => s.tasks.filter(task => task.dueAt?.slice(0, 10) === date || task.plannedStart?.slice(0, 10) === date).length;

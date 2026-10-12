@@ -279,6 +279,7 @@ script = [textStream('启动占位')];
 localStorage.setItem('msa.ui.v1', JSON.stringify({ currentPanel: 'tasks', workspaceMode: 'chat' }));
 await import('../src/main.js');
 check('深度模式入口已移除', $('#btn-depth') === null && $('#set-reason-model') === null);
+check('AI 对话有「关于我」入口', $('#btn-about-me')?.textContent === '关于我');
 await waitFor(() => $('#view-tasks')?.classList.contains('active') && $('.app')?.classList.contains('chat-mode'), { label: 'restore workspace' });
 check('Saved panel restored on boot', $('#view-tasks').classList.contains('active'));
 check('Saved chat mode restored on boot', $('.app').classList.contains('chat-mode'));
@@ -334,12 +335,12 @@ check('对话区显示空状态提示', $('#messages .placeholder') !== null);
 console.log('\n[2] 界面结构（左导航带文字 + SVG 图标 + 可折叠）');
 
 const navBtns = $$('.nav-btn');
-check('导航渲染 AI 对话和四个内容入口', navBtns.length === 5, String(navBtns.length));
+check('导航渲染 AI 对话、任务和四个内容入口', navBtns.length === 6, String(navBtns.length));
 
 const labels = navBtns.map(b => b.querySelector('.nav-label')?.textContent?.trim());
 check('每项都有文字标签', labels.every(Boolean), labels.join(','));
 check('标签就是一级面板名',
-  labels.join(',') === 'AI 对话,今日,学习,微习惯,生活导航', labels.join(','));
+  labels.join(',') === 'AI 对话,任务,今日,学习,微习惯,生活导航', labels.join(','));
 check('**使用内联 SVG 图标，不再是 emoji**',
   navBtns.every(b => b.querySelector('.nav-icon svg')), '有项目缺 SVG');
 check('导航区完全没有 emoji',
@@ -354,8 +355,8 @@ check('点击左栏首项进入独立 AI 对话页', $('.app')?.classList.contai
 check('AI 对话页的左栏入口保持高亮', $('.nav-btn[data-panel="chat"]')?.classList.contains('active'));
 check('顶栏不再显示返回内容和显示内容文字按钮',
   $('#btn-return-content') === null && !$$('.workspace-switch').length);
-check('AI 对话标题栏只有侧栏图标按钮',
-  $('.chat-head #btn-chat-context')?.querySelector('svg') !== null
+check('AI 对话标题栏有关于我和侧栏按钮',
+  $('#btn-about-me') !== null && $('.chat-head #btn-chat-context')?.querySelector('svg') !== null
     && $('#btn-chat-context')?.getAttribute('aria-label') === '显示内容侧栏');
 click('#btn-chat-context');
 await wait(60);
@@ -511,7 +512,7 @@ for (const panel of ['today', 'learning', 'habits', 'life', 'records', 'tasks', 
   const view = $(`#view-${panel}`);
   const active = view?.classList.contains('active');
   const rendered = (view?.innerHTML.length || 0) > 10;
-  const navActive = $(`.nav-btn[data-panel="${['today', 'learning', 'habits', 'life'].includes(panel) ? panel : 'learning'}"]`)?.classList.contains('active');
+  const navActive = $(`.nav-btn[data-panel="${['today', 'learning', 'habits', 'life', 'tasks'].includes(panel) ? panel : 'learning'}"]`)?.classList.contains('active');
   const titled = ($('#panel-title')?.textContent || '').length > 0;
   check(`Panel ${panel} persisted`, JSON.parse(localStorage.getItem('msa.ui.v1')).currentPanel === panel);
   if (active && rendered && navActive && titled) panelOk++;
@@ -519,6 +520,9 @@ for (const panel of ['today', 'learning', 'habits', 'life', 'records', 'tasks', 
     `active=${active} rendered=${rendered} navActive=${navActive} titled=${titled}`);
 }
 check('全部面板都能切换、渲染、导航高亮同步', panelOk === 10, `${panelOk}/10`);
+await openPanel('tasks');
+check('任务页显示待完成主要任务数量', $('#view-tasks [data-pending-important]') !== null);
+check('任务页显示待完成杂事数量', $('#view-tasks [data-pending-chore]') !== null);
 check('切换面板期间没有报错', errors.length === 0, errors[0]);
 await openPanel('habits');
 click('[data-habit-fab]');

@@ -49,6 +49,7 @@ let lastCards = [];
 
 /* ── 界面状态（折叠 + 宽度，记住上次的选择）── */
 const UI_KEY = 'msa.ui.v1';
+const ABOUT_ME_KEY = 'msa.about-me.v1';
 const WIDTH_LIMITS = {
   nav: { min: 148, max: 340, varName: '--nav-w' },
   panel: { min: 240, max: 620, varName: '--panel-w' },
@@ -56,11 +57,34 @@ const WIDTH_LIMITS = {
 let uiState = { navCollapsed: false, panelCollapsed: false, topbarCollapsed: false, navWidth: null, panelWidth: null };
 let workspaceMode = 'content';
 let chatContextOpen = false;
+let aboutInterview = { active: false, startedAt: null };
 
 function loadUiState() {
   try {
     uiState = { ...uiState, ...JSON.parse(localStorage.getItem(UI_KEY) || '{}') };
   } catch { /* 用默认值 */ }
+  try {
+    const saved = JSON.parse(localStorage.getItem(ABOUT_ME_KEY) || '{}');
+    aboutInterview = { ...aboutInterview, ...saved };
+  } catch { /* 用默认值 */ }
+}
+
+function saveAboutInterview() {
+  try { localStorage.setItem(ABOUT_ME_KEY, JSON.stringify(aboutInterview)); } catch { /* 无痕模式 */ }
+}
+
+function setAboutInterviewActive(active) {
+  aboutInterview = { active: Boolean(active), startedAt: active ? (aboutInterview.startedAt || new Date().toISOString()) : null };
+  saveAboutInterview();
+  updateAboutButton();
+}
+
+function updateAboutButton() {
+  const btn = $('#btn-about-me');
+  if (!btn) return;
+  btn.textContent = aboutInterview.active ? '继续关于我' : '关于我';
+  btn.title = aboutInterview.active ? '继续关于我的逐题访谈' : '开始关于我的逐题访谈';
+  btn.setAttribute('aria-pressed', String(aboutInterview.active));
 }
 
 function applyUiState({ persist = true } = {}) {
@@ -78,6 +102,7 @@ function applyUiState({ persist = true } = {}) {
     contextBtn.setAttribute('aria-label', contextBtn.title);
     contextBtn.classList.toggle('active', chatContextOpen);
   }
+  updateAboutButton();
 
   const root = document.documentElement;
   for (const [key, lim] of Object.entries(WIDTH_LIMITS)) {
@@ -195,7 +220,7 @@ const refreshAllDebounced = debounce(refreshAll, 300);
 function renderChrome() {
   // 学习工作台的内部页面仍归属于“学习”，保持一级导航位置感。
   const current = getCurrentPanel();
-  const learningPages = ['records', 'tasks', 'checkin', 'points', 'plans', 'sops', 'reviews', 'profile'];
+  const learningPages = ['records', 'checkin', 'points', 'plans', 'sops', 'reviews', 'profile'];
   const activeNav = workspaceMode === 'chat' ? 'chat' : learningPages.includes(current) ? 'learning' : current;
   renderNav(PANELS, activeNav, switchPanel, panelBadges(todayState));
   const backLearning = $('#btn-back-learning');
@@ -454,6 +479,10 @@ async function send(text, { skipIntent = false } = {}) {
   const content = String(text || '').trim();
   if (!content || busy) return;
 
+  if (/^(?:暂停|先暂停|暂停关于我|结束关于我|完成关于我|先到这里)(?:访谈)?[。.!！?？]*$/i.test(content)) {
+    setAboutInterviewActive(false);
+  }
+
   const settings = loadSettings();
   if (!settings.apiKey) {
     toast('还没填 API Key，先打开设置填一下', 'err');
@@ -649,6 +678,15 @@ function wireTopbar() {
     uiState.panelCollapsed = false;
     applyUiState();
   };
+  $('#btn-about-me').onclick = async () => {
+    if (busy) { toast('等当前对话说完再开始访谈', 'warn'); return; }
+    setWorkspaceMode('chat');
+    const prompt = aboutInterview.active
+      ? '继续“关于我”访谈。请根据本次对话和已有档案，只问下一个最重要的问题；一次只问一个，允许我跳过或暂停。不要重复已经回答过的问题。访谈结束时先整理给我核对，得到确认后再保存。'
+      : '开始“关于我”访谈：请先查看已有档案，只问我一个最重要的问题，重点了解我的拖延触发情境、现实限制、通常会怎么做、什么帮助有效，以及我希望你如何监督。一次只问一个问题，允许我跳过或暂停；访谈结束前先整理给我核对，得到确认后再保存。';
+    setAboutInterviewActive(true);
+    await send(prompt);
+  };
   $('#btn-settings').onclick = () => openSettings({ onChange: refreshAll, profile });
   $('#btn-backup').onclick = () => openBackup({ onChanged: refreshAll });
   $('#btn-export').onclick = async () => {
@@ -708,7 +746,7 @@ function wireTopbar() {
 
 async function boot() {
   loadUiState();
-  showPanel(uiState.currentPanel || 'learning');
+  showPanel(uiState.currentPanel || 'tasks');
   workspaceMode = uiState.workspaceMode === 'chat' ? 'chat' : 'content';
   applyUiState();
   void initDailyReviewSync(() => { void refreshAll(); })

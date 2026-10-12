@@ -304,6 +304,7 @@ body.panel-collapsed .panel-reveal { display: flex; }
 }
 .chat-head strong { color: var(--fg); font-size: 16px; }
 .chat-head span { color: var(--fg-faint); font-size: 12px; }
+.chat-head #btn-about-me { margin-left: auto; }
 .chat-head #btn-chat-context { display: none; margin-left: auto; }
 
 /* 工作区默认展示内容全屏，AI 对话切换成独立页面；需要时再打开内容侧栏。 */
@@ -678,6 +679,10 @@ body.resizing iframe, body.resizing textarea { pointer-events: none; }
 
 .pending-area { display: none; flex-direction: column; gap: 7px; padding: 0 32px; }
 .pending-area.on { display: flex; padding-bottom: 4px; }
+
+.task-summary { display: flex; align-items: baseline; gap: 9px; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
+.task-summary strong { color: var(--fg); font-size: 13px; }
+.task-summary span + span { border-left: 1px solid var(--line); padding-left: 9px; }
 
 .pending-card {
   display: flex; align-items: center; gap: 11px;
