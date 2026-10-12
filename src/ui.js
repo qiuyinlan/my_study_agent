@@ -181,7 +181,6 @@ export function initChromeIcons({ navCollapsed = false, panelCollapsed = false, 
   set('#btn-collapse-panel', panelCollapsed ? 'chevron-right' : 'chevron-left',
     panelCollapsed ? '展开面板' : '收起面板');
   set('#btn-reveal-panel', 'chevron-right', '展开面板');
-  set('#btn-chat-context', 'sidebar');
   set('#btn-refresh-panel', 'refresh', '立即刷新');
   set('#btn-collapse-topbar', 'chevron-left', topbarCollapsed ? '展开顶栏' : '收起顶栏');
 }

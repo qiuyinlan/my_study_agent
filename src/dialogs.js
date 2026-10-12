@@ -43,7 +43,7 @@ function updateBaseUrlNotice() {
   note.className = 'hint warn-note';
 }
 
-export async function openSettings({ onChange, profile }) {
+export async function openSettings({ onChange, profile, onBackup, onExport }) {
   const dlg = $('#dlg-settings');
   const s = loadSettings();
 
@@ -93,6 +93,8 @@ export async function openSettings({ onChange, profile }) {
       $('#btn-clear-chat').onclick = null;
       $('#btn-diag').onclick = null;
       $('#btn-diag-copy').onclick = null;
+      $('#btn-settings-export').onclick = null;
+      $('#btn-settings-backup').onclick = null;
       $('#review-sync-login').onclick = null;
       $('#review-sync-signup').onclick = null;
       $('#review-sync-logout').onclick = null;
@@ -105,6 +107,8 @@ export async function openSettings({ onChange, profile }) {
     };
     dlg.addEventListener('close', onClose);
     $('#btn-settings-close').onclick = () => dlg.close('cancel');
+    $('#btn-settings-export').onclick = () => onExport?.();
+    $('#btn-settings-backup').onclick = () => onBackup?.();
     $('#set-baseurl').oninput = updateBaseUrlNotice;
 
     const runReviewAuth = async action => {

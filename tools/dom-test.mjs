@@ -355,18 +355,13 @@ check('点击左栏首项进入独立 AI 对话页', $('.app')?.classList.contai
 check('AI 对话页的左栏入口保持高亮', $('.nav-btn[data-panel="chat"]')?.classList.contains('active'));
 check('顶栏不再显示返回内容和显示内容文字按钮',
   $('#btn-return-content') === null && !$$('.workspace-switch').length);
-check('AI 对话标题栏有关于我和侧栏按钮',
-  $('#btn-about-me') !== null && $('.chat-head #btn-chat-context')?.querySelector('svg') !== null
-    && $('#btn-chat-context')?.getAttribute('aria-label') === '显示内容侧栏');
-click('#btn-chat-context');
-await wait(60);
-check('侧栏图标可展开内容面板', $('.app')?.classList.contains('chat-context'));
-check('展开侧栏后图标状态和提示更新',
-  $('#btn-chat-context')?.classList.contains('active')
-    && $('#btn-chat-context')?.title === '隐藏内容侧栏');
-click('#btn-chat-context');
-await wait(60);
-check('再次点击侧栏图标可收起内容面板', !$('.app')?.classList.contains('chat-context'));
+check('关于我入口位于新对话旁边的聊天工具区',
+  $('#btn-about-me')?.parentElement === $('#btn-new-chat')?.parentElement
+    && $('#btn-sessions')?.parentElement === $('#btn-new-chat')?.parentElement);
+check('设置按钮与聊天操作分组独立',
+  $('#btn-settings')?.parentElement !== $('#btn-new-chat')?.parentElement
+    && $('.chat-actions')?.contains($('#btn-settings')) === false);
+check('聊天页不再提供内容侧栏展开入口', $('#btn-chat-context') === null);
 click('.nav-btn[data-panel="tasks"]');
 await wait(100);
 check('从 AI 对话选择内容入口后返回任务页面', !$('.app')?.classList.contains('chat-mode') && $('#view-tasks')?.classList.contains('active'));
@@ -660,6 +655,10 @@ console.log('\n[11] 设置里的诊断');
 click('#btn-settings');
 await wait(250);
 check('设置弹窗打开了', $('#dlg-settings')?.open === true);
+check('备份和导出入口位于设置内',
+  $('#dlg-settings')?.contains($('#btn-settings-export'))
+    && $('#dlg-settings')?.contains($('#btn-settings-backup'))
+    && $('#btn-export') === null && $('#btn-backup') === null);
 check('有「开始诊断」按钮', $('#btn-diag') !== null);
 check('有「复制报告」按钮', $('#btn-diag-copy') !== null);
 check('复制按钮初始为禁用', $('#btn-diag-copy')?.disabled === true);

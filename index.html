@@ -14,11 +14,12 @@
   <header class="topbar">
     <div class="brand"><span class="mark" aria-hidden="true"></span><span id="brand-name">帕尼尼</span><button class="icon-btn" id="btn-collapse-topbar" type="button" title="收起顶栏" aria-label="收起顶栏"></button></div>
     <div class="stats" id="stats"></div>
-    <div class="actions">
+    <div class="chat-actions" aria-label="对话操作">
       <button class="ghost accent-new" id="btn-new-chat" title="开一个新对话">＋ 新对话</button>
+      <button class="ghost" id="btn-about-me" type="button" title="开始或继续关于我的逐题访谈">关于我</button>
       <button class="ghost" id="btn-sessions" title="切换/管理对话">对话列表</button>
-      <button class="ghost" id="btn-export" title="导出结构化 Markdown，可迁移到别的 AI">导出</button>
-      <button class="ghost" id="btn-backup">备份</button>
+    </div>
+    <div class="actions">
       <button class="ghost" id="btn-settings">设置</button>
     </div>
   </header>
@@ -66,14 +67,12 @@
       <div class="chat-head">
         <strong>AI 对话</strong>
         <span>把问题、计划和当天状态交给帕尼尼一起处理</span>
-        <button class="icon-btn" id="btn-chat-context" type="button" title="显示内容侧栏" aria-label="显示内容侧栏"></button>
       </div>
       <div class="messages" id="messages"></div>
       <div class="pending-area" id="pending-area"></div>
       <form class="composer" id="composer">
         <textarea id="input" rows="1"
           placeholder="说点什么…"></textarea>
-        <button class="ghost" id="btn-about-me" type="button" title="开始或继续关于我的逐题访谈">关于我</button>
         <button type="submit" id="btn-send" class="primary">发送</button>
       </form>
     </section>
@@ -141,6 +140,12 @@
 
     <div class="status" id="set-status"></div>
     <div class="hint" id="usage-line"></div>
+
+    <div class="section-title">数据与导出</div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="btn-settings-export">导出 Markdown</button>
+      <button type="button" class="ghost" id="btn-settings-backup">备份与恢复</button>
+    </div>
 
     <div class="section-title">出了问题？跑一次诊断</div>
     <div class="hint" style="margin-bottom:8px">

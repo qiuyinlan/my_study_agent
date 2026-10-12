@@ -56,7 +56,6 @@ const WIDTH_LIMITS = {
 };
 let uiState = { navCollapsed: false, panelCollapsed: false, topbarCollapsed: false, navWidth: null, panelWidth: null };
 let workspaceMode = 'content';
-let chatContextOpen = false;
 let aboutInterview = { active: false, startedAt: null };
 
 function loadUiState() {
@@ -95,13 +94,6 @@ function applyUiState({ persist = true } = {}) {
   uiState.workspaceMode = workspaceMode;
   const app = $('.app');
   app?.classList.toggle('chat-mode', workspaceMode === 'chat');
-  app?.classList.toggle('chat-context', workspaceMode === 'chat' && chatContextOpen);
-  const contextBtn = $('#btn-chat-context');
-  if (contextBtn) {
-    contextBtn.title = chatContextOpen ? '隐藏内容侧栏' : '显示内容侧栏';
-    contextBtn.setAttribute('aria-label', contextBtn.title);
-    contextBtn.classList.toggle('active', chatContextOpen);
-  }
   updateAboutButton();
 
   const root = document.documentElement;
@@ -230,7 +222,6 @@ function renderChrome() {
 
 function setWorkspaceMode(mode) {
   workspaceMode = mode === 'chat' ? 'chat' : 'content';
-  if (workspaceMode === 'content') chatContextOpen = false;
   if (workspaceMode === 'chat' && uiState.panelCollapsed) uiState.panelCollapsed = false;
   applyUiState();
   renderChrome();
@@ -673,11 +664,6 @@ function wireTopbar() {
     uiState.topbarCollapsed = !uiState.topbarCollapsed;
     applyUiState();
   };
-  $('#btn-chat-context').onclick = () => {
-    chatContextOpen = !chatContextOpen;
-    uiState.panelCollapsed = false;
-    applyUiState();
-  };
   $('#btn-about-me').onclick = async () => {
     if (busy) { toast('等当前对话说完再开始访谈', 'warn'); return; }
     setWorkspaceMode('chat');
@@ -687,12 +673,16 @@ function wireTopbar() {
     setAboutInterviewActive(true);
     await send(prompt);
   };
-  $('#btn-settings').onclick = () => openSettings({ onChange: refreshAll, profile });
-  $('#btn-backup').onclick = () => openBackup({ onChanged: refreshAll });
-  $('#btn-export').onclick = async () => {
+  const exportMarkdown = async () => {
     const md = await downloadMarkdownExport({});
     toast(`已导出 Markdown（${markdownStats(md).lines} 行）`, 'ok');
   };
+  $('#btn-settings').onclick = () => openSettings({
+    onChange: refreshAll,
+    profile,
+    onBackup: () => openBackup({ onChanged: refreshAll }),
+    onExport: exportMarkdown,
+  });
 
   /* 新对话：直接开一条，不弹窗、不确认 —— 这是最常用的动作 */
   $('#btn-new-chat').onclick = async () => {
