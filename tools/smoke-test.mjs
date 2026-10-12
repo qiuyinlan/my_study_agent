@@ -600,9 +600,20 @@ check('禁止剥夺睡眠饮食', sysFull.includes('剥夺睡眠'));
 check('不诊断疾病/不建议药物', sysFull.includes('不诊断疾病'));
 check('ADHD 不归因于懒惰', sysFull.includes('不将 ADHD 相关困难简单归结为懒惰'));
 check('未回复不算失败', sysFull.includes('不把用户未回复视为任务失败'));
+check('拖延流程不预设用户正在逃避', sysFull.includes('不要预设这是逃避'));
+check('当前做不了时先接受并提供灵活选项',
+  sysFull.includes('停止催促，询问他想等条件恢复、改期、换成现在能做的其他事'));
 check('包含核心信条', sysFull.includes('计划不是成果'));
 check('声明了承诺类动作要用户点确认', sysFull.includes('必须用户自己点按钮'));
 check('用户提供个人背景时要求本轮整理档案草稿', sysFull.includes('本轮就调用 update_profile 整理待保存草稿'));
+check('用户说现在做不了时无需证明且先接受',
+  sysFull.includes('这本身就是当前现实限制') && sysFull.includes('不要求他解释、证明')
+    && sysFull.includes('先接受并停止催促'));
+check('含糊改做杂事时只中性追问，不直接定性逃避',
+  sysFull.includes('不要直接断言这是逃避'));
+check('工具结果冲突时必须纠正并以结果为准',
+  sysFull.includes('工具结果是本轮事实的唯一依据')
+    && sysFull.includes('先清楚纠正错误再继续'));
 check('背景资料和目标有明确的档案字段', sysFull.includes('存入 about') && sysFull.includes('存入 goals'));
 const profileTool = tools.TOOL_DEFS.find(d => d.function.name === 'update_profile');
 check('档案工具 schema 暴露背景和目标字段',
@@ -740,6 +751,11 @@ out = await executeTool('save_task', JSON.stringify({
   title: '写论文引言', priority: 'P0', area: 'work', nextAction: '打开文档写三行',
 }));
 check('save_task 新建成功', !out.error, out.content?.slice(0, 80));
+check('save_task 成功回执包含真实保存对象',
+  out.content.includes('写论文引言') && (await dbm.listTasks()).some(t => t.title === '写论文引言'));
+out = await executeTool('set_key_tasks', JSON.stringify({ ids: ['写论文引言'] }));
+check('关键任务实际挂载前只能显示待确认',
+  out.pending === true && out.content.includes('尚未执行') && !(await dbm.getKeyTasks()).length);
 out = await executeTool('save_task', JSON.stringify({
   title: '整理桌面杂事', priority: 'P3', category: 'chore', area: 'life',
 }));
