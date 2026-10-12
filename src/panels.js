@@ -60,15 +60,18 @@ export function renderLife(s, h) {
 export function renderLearning(s, h) {
   const el = $('#view-learning');
   if (!el) return;
-  const active = s.active?.length || 0;
+  const activeTasks = s.active || [];
+  const important = activeTasks.filter(t => (t.category || (['P0', 'P1'].includes(t.priority) ? 'important' : 'chore')) === 'important').length;
+  const chores = activeTasks.length - important;
+  const active = `${important}|${chores}`;
   const done = s.doneToday?.length || 0;
   el.innerHTML = `<div class="learning-workspace">
     <section class="learning-hero">
       <div><span class="habit-kicker">STUDY WORKSPACE</span><h3>学习</h3><p>任务负责推进，规划负责拆解，日志记录每天实际学了什么。</p></div>
-      <div class="learning-stats"><strong>${done}<small> / ${active}</small></strong><span>今日完成任务</span></div>
+      <div class="learning-stats"><strong>${done}<small> 完成</small></strong><span>主要任务 | 杂事：${active}</span></div>
     </section>
     <section class="learning-group"><h4>推进学习</h4><div class="learning-cards">
-      <button class="learning-card primary-card" data-learning-panel="tasks"><span class="learning-card-top"><strong>任务</strong><b>${active}</b></span><small>近期要完成的具体事项，追踪进度和下一步</small></button>
+      <button class="learning-card primary-card" data-learning-panel="tasks"><span class="learning-card-top"><strong>任务</strong><b>${active}</b></span><small>主要任务 | 杂事</small></button>
       <button class="learning-card" data-learning-panel="plans"><span class="learning-card-top"><strong>规划</strong><b>›</b></span><small>把较大的目标拆成阶段和行动步骤</small></button>
     </div></section>
     <section class="learning-group"><h4>记录与回顾</h4><div class="learning-cards">

@@ -295,10 +295,30 @@ export async function buildMarkdownExport({ includeAll = false } = {}) {
   h(2, '十一、数据说明');
   p(`- 所有"未记录"表示**数据库里确实没有这条信息**，不是遗漏，也不是零值。`);
   p(`- 时间记录区分来源：「计时」是程序记录的真实墙钟时间，「自报」是用户报告的。两者不一致时两侧都保留，不抹平。`);
-  p(`- 本导出不含任何推测。凡是推断性内容都会明确标注。`);
+  p(`- 结构化记录只导出数据库事实；下方对话按原文保留，助手说法不代表已核实事实。`);
   if (today.integrity.length) {
     p('- 导出时发现以下数据需要核对：');
     for (const i of today.integrity) p(`  - ${i.text}`);
+  }
+
+  /* ── 十二、对话记录 ── */
+  h(2, '十二、对话记录');
+  const sessions = (await db.sessions.toArray())
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+  if (!sessions.length) {
+    p('未记录（没有对话会话）。');
+  } else {
+    for (const session of sessions) {
+      h(3, `${session.title || '未命名会话'}｜${v(session.createdAt)}`);
+      if (session.summary) p(`会话摘要：${session.summary}`);
+      const messages = await db.messages.where('sessionId').equals(session.id).sortBy('createdAt');
+      const visible = messages.filter(m => (m.role === 'user' || m.role === 'assistant') && m.content);
+      if (!visible.length) p('（没有可导出的对话文本。）');
+      for (const message of visible) {
+        const speaker = message.role === 'user' ? '用户' : '帕尼尼';
+        p(`**${speaker}｜${v(message.createdAt)}**\n\n${message.content}`);
+      }
+    }
   }
 
   return L.join('\n');

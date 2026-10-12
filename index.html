@@ -12,7 +12,7 @@
 <div class="app">
 
   <header class="topbar">
-    <div class="brand"><span class="mark" aria-hidden="true"></span><span id="brand-name">帕尼尼</span></div>
+    <div class="brand"><span class="mark" aria-hidden="true"></span><span id="brand-name">帕尼尼</span><button class="icon-btn" id="btn-collapse-topbar" type="button" title="收起顶栏" aria-label="收起顶栏"></button></div>
     <div class="stats" id="stats"></div>
     <div class="actions">
       <button class="ghost accent-new" id="btn-new-chat" title="开一个新对话">＋ 新对话</button>
@@ -73,7 +73,6 @@
       <form class="composer" id="composer">
         <textarea id="input" rows="1"
           placeholder="说点什么…"></textarea>
-        <button type="button" id="btn-depth" title="深度模式：用推理模型做分析和讲解，这一轮不调工具">深度</button>
         <button type="submit" id="btn-send" class="primary">发送</button>
       </form>
     </section>
@@ -102,7 +101,6 @@
 
     <div class="grid2">
       <label>对话模型<input type="text" id="set-model" spellcheck="false"></label>
-      <label>深度模型<input type="text" id="set-reason-model" spellcheck="false"></label>
     </div>
 
     <label class="row">

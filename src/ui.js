@@ -167,12 +167,15 @@ export function icon(name, cls = '') {
 }
 
 /** 把顶栏/面板上的图标按钮填好（HTML 里只留空按钮，避免手写 SVG 重复） */
-export function initChromeIcons({ navCollapsed = false, panelCollapsed = false } = {}) {
+export function initChromeIcons({ navCollapsed = false, panelCollapsed = false, topbarCollapsed = false } = {}) {
   const set = (sel, name, title) => {
     const el = $(sel);
     if (!el) return;
     el.innerHTML = icon(name);
-    if (title) el.title = title;
+    if (title) {
+      el.title = title;
+      el.setAttribute('aria-label', title);
+    }
   };
   set('#btn-collapse-nav', 'sidebar', navCollapsed ? '展开导航' : '收起导航');
   set('#btn-collapse-panel', panelCollapsed ? 'chevron-right' : 'chevron-left',
@@ -180,6 +183,7 @@ export function initChromeIcons({ navCollapsed = false, panelCollapsed = false }
   set('#btn-reveal-panel', 'chevron-right', '展开面板');
   set('#btn-chat-context', 'sidebar');
   set('#btn-refresh-panel', 'refresh', '立即刷新');
+  set('#btn-collapse-topbar', 'chevron-left', topbarCollapsed ? '展开顶栏' : '收起顶栏');
 }
 
 /* ══════════ 左侧导航 ══════════ */
@@ -226,7 +230,7 @@ export function renderPendingArea(items, { onConfirm, onDismiss } = {}) {
         ${p.detail ? `<div class="p-detail">${esc(p.detail)}</div>` : ''}
         <div class="p-hint">这是你的决定，点一下才会执行</div>
       </div>
-      <button type="button" class="${p.danger ? 'danger' : 'primary'}" data-confirm="${p.id}">确认</button>
+      <button type="button" class="${p.danger ? 'danger' : 'primary'}" data-confirm="${p.id}">${p.chatDraft ? '保存' : '确认'}</button>
       <button type="button" class="ghost" data-dismiss="${p.id}">不用</button>
     </div>`).join('');
 

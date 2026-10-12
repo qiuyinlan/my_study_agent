@@ -17,7 +17,7 @@ import { PANELS, showPanel, getCurrentPanel, setPanelSub, refreshPanel, panelBad
 import { computeToday, todayCards } from './planner.js';
 import { runTurn } from './agent.js';
 import {
-  ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession, setTaskCompletion,
+  ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession, setTaskCompletion, addMessage,
 } from './db.js';
 import { loadSettings } from './config.js';
 import {
@@ -35,6 +35,7 @@ import { downloadMarkdownExport, buildMarkdownExport, markdownStats } from './ex
 import { detectIntent, ALL_COMMANDS } from './commands.js';
 import { executeTool } from './tools.js';
 import { listPending, removePending, clearPending } from './pending.js';
+import { listChatWrites, removeChatWrites } from './chat-approvals.js';
 import { debounce } from './util.js';
 
 const chat = createChatView($('#messages'));
@@ -52,7 +53,7 @@ const WIDTH_LIMITS = {
   nav: { min: 148, max: 340, varName: '--nav-w' },
   panel: { min: 240, max: 620, varName: '--panel-w' },
 };
-let uiState = { navCollapsed: false, panelCollapsed: false, navWidth: null, panelWidth: null };
+let uiState = { navCollapsed: false, panelCollapsed: false, topbarCollapsed: false, navWidth: null, panelWidth: null };
 let workspaceMode = 'content';
 let chatContextOpen = false;
 
@@ -65,6 +66,7 @@ function loadUiState() {
 function applyUiState({ persist = true } = {}) {
   document.body.classList.toggle('nav-collapsed', uiState.navCollapsed);
   document.body.classList.toggle('panel-collapsed', uiState.panelCollapsed);
+  document.body.classList.toggle('topbar-collapsed', uiState.topbarCollapsed);
   uiState.currentPanel = getCurrentPanel();
   uiState.workspaceMode = workspaceMode;
   const app = $('.app');
@@ -247,16 +249,56 @@ async function refreshChat() {
  */
 async function refreshPending() {
   const s = await ensureSession();
-  renderPendingArea(await listPending(s.id), {
+  const [actions, drafts] = await Promise.all([listPending(s.id), listChatWrites(s.id)]);
+  const draftActions = drafts.map(item => ({
+    ...item,
+    label: `保存${({ save_memory: '长期记忆', update_profile: '档案', save_task: '任务', log_study: '学习记录', save_checkin: '打卡', save_review: '复盘', add_topic: '知识点' })[item.tool] || '记录'}`,
+    detail: describeChatDraft(item),
+    danger: false,
+    chatDraft: true,
+  }));
+  renderPendingArea([...draftActions, ...actions], {
     onConfirm: confirmPending,
     onDismiss: async (id) => {
-      await removePending(id);
+      if (id.startsWith('chat_approval_')) await removeChatWrites([id]);
+      else await removePending(id);
       await refreshPending();
     },
   });
 }
 
+function describeChatDraft(item) {
+  const args = item.args || {};
+  if (item.tool === 'save_memory') return args.text || '长期记忆草稿';
+  if (item.tool === 'save_task') return args.title || '新任务';
+  if (item.tool === 'log_study') return [args.topic, args.what, args.minutes && `${args.minutes} 分钟`].filter(Boolean).join(' · ');
+  if (item.tool === 'save_checkin') return Object.entries(args).filter(([, value]) => value !== '' && value != null).map(([key, value]) => `${key}：${value}`).join(' · ');
+  if (item.tool === 'save_review') return [args.kind, args.action, args.actual].filter(Boolean).join(' · ');
+  if (item.tool === 'add_topic') return args.name || '新知识点';
+  if (item.tool === 'update_profile') return Object.entries(args).filter(([, value]) => value !== '' && value != null).map(([, value]) => value).join(' · ');
+  return Object.entries(args).filter(([, value]) => value !== '' && value != null).map(([, value]) => String(value)).join(' · ');
+}
+
 async function confirmPending(pendingId) {
+  if (pendingId.startsWith('chat_approval_')) {
+    const s = await ensureSession();
+    const item = (await listChatWrites(s.id)).find(p => p.id === pendingId);
+    if (!item) { toast('这条草稿已失效', 'warn'); await refreshPending(); return; }
+    try {
+      const out = await executeTool(item.tool, item.args, { confirmed: true, sessionId: item.sessionId || s.id });
+      if (out.error) throw new Error(out.content || '保存失败');
+      await removeChatWrites([pendingId]);
+      await addMessage({ sessionId: item.sessionId || s.id, role: 'assistant', content: out.content || `已保存：${item.tool}` });
+      toast(out.summary || '已保存', 'ok');
+      await refreshChat();
+      await refreshAll();
+    } catch (e) {
+      toast(`保存失败：${e.message}`, 'err');
+    }
+    await refreshPending();
+    return;
+  }
+
   const items = await listPending();
   const item = items.find(p => p.id === pendingId);
   if (!item) {
@@ -436,7 +478,6 @@ async function send(text, { skipIntent = false } = {}) {
   /* 3) 交给模型 */
   busy = true;
   setBusy(true);
-  const depth = $('#btn-depth')?.classList.contains('active');
   controller = new AbortController();
 
   chat.appendUser(content, profile);
@@ -445,7 +486,7 @@ async function send(text, { skipIntent = false } = {}) {
     await runTurn({
       userText: content,
       codeNote,
-      model: depth ? settings.reasonModel : null,
+      model: null,
       signal: controller.signal,
       onEvent: handleEvent,
     });
@@ -584,12 +625,7 @@ function wireComposer() {
   const input = $('#input');
 
   input.addEventListener('input', autoGrow);
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      form.requestSubmit();
-    }
-  });
+  // Enter 只换行；发送必须点击按钮。
 
   form.addEventListener('submit', e => {
     e.preventDefault();
@@ -604,6 +640,10 @@ function wireComposer() {
 /* ══════════════ 顶栏 ══════════════ */
 
 function wireTopbar() {
+  $('#btn-collapse-topbar').onclick = () => {
+    uiState.topbarCollapsed = !uiState.topbarCollapsed;
+    applyUiState();
+  };
   $('#btn-chat-context').onclick = () => {
     chatContextOpen = !chatContextOpen;
     uiState.panelCollapsed = false;
@@ -662,25 +702,21 @@ function wireTopbar() {
     }
   };
 
-  $('#btn-depth').onclick = () => {
-    const btn = $('#btn-depth');
-    btn.classList.toggle('active');
-    const on = btn.classList.contains('active');
-    toast(on
-      ? `深度模式：改用 ${loadSettings().reasonModel}，这一轮不调工具，适合分析和讲解`
-      : '已回到普通模式（会调工具读写记录）');
-  };
 }
 
 /* ══════════════ 启动 ══════════════ */
 
 async function boot() {
   loadUiState();
-  showPanel(uiState.currentPanel || 'today');
+  showPanel(uiState.currentPanel || 'learning');
   workspaceMode = uiState.workspaceMode === 'chat' ? 'chat' : 'content';
   applyUiState();
-  await initDailyReviewSync(() => { void refreshAll(); });
-  await initTaskSync(() => { void refreshAll(); });
+  void initDailyReviewSync(() => { void refreshAll(); })
+    .then(() => refreshAll())
+    .catch(error => console.warn('[daily-review-sync]', error));
+  void initTaskSync(() => { void refreshAll(); })
+    .catch(error => console.warn('[task-sync-init]', error))
+    .finally(() => { void refreshAll(); });
 
   wireComposer();
   wireTopbar();

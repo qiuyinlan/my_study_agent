@@ -860,6 +860,8 @@ dialog::backdrop { background: rgba(16,24,40,.32); }
   .panel-reveal { display: none !important; }
 }
 
+#btn-collapse-topbar { display: none; }
+
 @media print { .nav, .panel, .composer, .topbar, .timerbar, .panel-reveal { display: none; } }
 
 /* ═══════════ studyagent × micro habit ═══════════ */
@@ -1210,6 +1212,7 @@ body {
 }
 
 @media (max-width: 560px) {
+  #btn-collapse-topbar { display: inline-flex; margin-left: auto; }
   .topbar {
     height: auto; min-height: 52px; flex-wrap: wrap; gap: 4px 8px;
     padding: 4px 10px 7px;
@@ -1218,6 +1221,10 @@ body {
   .actions { order: 2; width: 100%; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .actions::-webkit-scrollbar { display: none; }
   .actions button { flex: 0 0 auto; min-height: 38px; padding: 6px 9px; }
+  body.topbar-collapsed .topbar { min-height: 40px; height: 40px; flex-wrap: nowrap; padding: 4px 10px; }
+  body.topbar-collapsed .topbar .stats,
+  body.topbar-collapsed .topbar .actions { display: none; }
+  body.topbar-collapsed #btn-collapse-topbar { transform: rotate(180deg); }
   .nav { padding: 5px 6px; }
   .nav-btn { gap: 7px; padding: 6px 9px; font-size: 12.5px; }
   .panel-head { min-height: 50px; padding: 8px 10px 8px 14px; gap: 6px; }

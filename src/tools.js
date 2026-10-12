@@ -134,7 +134,7 @@ const IMPL = {
     return lock(lines.join('\n'), `get_task(${t.title})`);
   },
 
-  async save_task({ id = '', title = '', state, priority, area, goal, dueAt, estimateMin,
+  async save_task({ id = '', title = '', state, priority, category, area, goal, dueAt, estimateMin,
     plannedStart, nextAction, blocker, progress, milestones, notes, mood, attention, outcome, review }) {
     let target = id ? await resolveTask(id) : null;
     if (!target && title) target = await resolveTask(title);
@@ -144,6 +144,7 @@ const IMPL = {
     set('title', title || undefined);
     set('state', state ? String(state).toUpperCase() : undefined);
     set('priority', priority ? String(priority).toUpperCase() : undefined);
+    set('category', category);
     set('area', area);
     set('goal', goal); set('dueAt', dueAt); set('plannedStart', plannedStart);
     set('nextAction', nextAction); set('blocker', blocker); set('notes', notes);
@@ -234,8 +235,12 @@ const IMPL = {
   /* ────────── 计时（§九）────────── */
 
   async timer_start({ task = '', plannedMin = null, note = '' }) {
-    const t = task ? await resolveTask(task) : null;
+    let t = task ? await resolveTask(task) : null;
     if (task && !t) throw new Error(`找不到任务「${task}」`);
+    if (!t) {
+      const keyTasks = await keyTaskRecords();
+      if (keyTasks.length === 1) t = keyTasks[0];
+    }
     const timer = await startTimer({ taskId: t?.id || '', plannedMin, note: note || (t ? '' : '') });
     return lock(
       `计时已开始：**${timer.label}**\n开始时间：${timer.startedAt.slice(0, 19).replace('T', ' ')}\n`
@@ -927,7 +932,7 @@ const DEF = {
     limit: N('最多返回几条，默认 30'),
   })],
   get_task: ['查看单个任务的完整字段和时间记录。需要某个任务的全部细节（实际耗时、复盘、阻碍、里程碑）时用。只是想知道有哪些任务，用 list_tasks。', P({ id: S('任务 id 或标题') }, ['id'])],
-  save_task: ['新建或更新任务。用户定目标、改截止、推进度、写下一步或阻碍时调用；他描述出一件要做的事、你判断该记下来时也调它。只是改状态请用 set_task_state。', P({
+  save_task: ['新建或更新任务。用户定目标、改截止、推进度、写下一步或阻碍时调用；他描述出一件要做的事、你判断该记下来时也调它。必须按用户说的分类传 category：杂事用 chore，主要任务用 important；不要默认把杂事存成主要任务。只是改状态请用 set_task_state。', P({
     id: S('已有任务的 id 或标题；新建时不传'),
     title: S('任务名称'),
     state: ENUM('状态，仅新建时用；改状态请用 set_task_state', Object.keys(TASK_STATES)),
@@ -961,7 +966,7 @@ const DEF = {
   }, ['ids'])],
 
   /* 计时 */
-  timer_start: ['开始真实计时。用户说"我要开始了""现在开始做""开始学"时调用 —— §6 要求记录实际开始时间必须用它，不能靠记。这个动作会变成确认按钮，需要他自己点。', P({
+  timer_start: ['开始真实计时。用户选定具体任务并准备开始时调用，必须传入该任务的标题或 id 以关联记录；若今日恰有一个关键任务且用户明确在推进它，可以省略 task，由程序关联该唯一关键任务。调用后先给出该任务的下一步和计划时长，再提示用户点界面确认按钮；不能声称计时已开始，直到确认执行结果返回。', P({
     task: S('关联任务 id 或标题'),
     plannedMin: N('计划时长（分钟），用于后续对比'),
     note: S('不关联任务时的说明'),
@@ -1234,7 +1239,7 @@ export function toolsForTurn() {
 }
 
 /* ══════════════ 需要用户确认的动作 ══════════════
-   档案与事实记录类动作通过聊天确认，CHAT_CONFIRM_TOOLS 负责先暂存草稿。
+   档案与事实记录类动作先暂存草稿，用户点保存按钮或明确回复确认后才写入。
    下面这些是「承诺类」：模型在替用户决定接下来做什么，或者会删东西、花
    积分、改变自己的行为。这类必须变成按钮让用户自己点。
 
@@ -1331,11 +1336,20 @@ export async function executeTool(name, rawArgs, { confirmed = false, sessionId 
   /* ── 需要用户点确认的动作：先不执行 ── */
   const rule = confirmRequirement(name, args);
   if (rule && !confirmed) {
+    let detail = rule.describe ? rule.describe(args) : '';
+    if (name === 'set_key_tasks') {
+      const ids = Array.isArray(args.ids) ? args.ids : [args.ids];
+      const titles = (await Promise.all(ids.filter(Boolean).map(resolveTask))).filter(Boolean).map(t => t.title);
+      if (titles.length) detail = `设为今日关键任务：${titles.join('、')}`;
+    } else if (name === 'delete_task') {
+      const task = await resolveTask(args.id);
+      if (task) detail = `删除任务「${task.title}」（时间记录和复盘会保留）`;
+    }
     const item = await addPending({
       tool: name,
       args,
       label: rule.label,
-      detail: rule.describe ? rule.describe(args) : '',
+      detail,
       danger: rule.danger,
       sessionId,
     });
@@ -1358,9 +1372,9 @@ export async function executeTool(name, rawArgs, { confirmed = false, sessionId 
     return {
       chatApproval: true,
       content: `这条记录已整理成待确认草稿，尚未写入正式数据。草稿内容：${JSON.stringify(args)}。`
-        + '请在聊天中简要说明将保存的内容，并明确问用户是否确认。提示用户回复「确认保存」或「取消」。'
+        + '界面会提供一个保存按钮。请简要说明草稿内容并提示用户点击按钮；不要要求用户再输入「确认保存」。用户也可以回复「取消」。'
         + '不要说成已经保存；确认前不要重试同一条记录。',
-      summary: `${name} · 等待聊天确认`,
+      summary: `${name} · 等待点击保存`,
     };
   }
 

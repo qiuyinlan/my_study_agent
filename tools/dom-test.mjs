@@ -278,6 +278,7 @@ console.log('\n[1] 启动');
 script = [textStream('启动占位')];
 localStorage.setItem('msa.ui.v1', JSON.stringify({ currentPanel: 'tasks', workspaceMode: 'chat' }));
 await import('../src/main.js');
+check('深度模式入口已移除', $('#btn-depth') === null && $('#set-reason-model') === null);
 await waitFor(() => $('#view-tasks')?.classList.contains('active') && $('.app')?.classList.contains('chat-mode'), { label: 'restore workspace' });
 check('Saved panel restored on boot', $('#view-tasks').classList.contains('active'));
 check('Saved chat mode restored on boot', $('.app').classList.contains('chat-mode'));
@@ -372,6 +373,15 @@ check('品牌标识不含 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test($('.brand')?.te
 check('三个折叠控件都有图标',
   ['#btn-collapse-nav', '#btn-collapse-panel', '#btn-reveal-panel']
     .every(sel => $(sel)?.querySelector('svg')));
+check('顶栏折叠按钮也有图标', $('#btn-collapse-topbar')?.querySelector('svg') !== null);
+click('#btn-collapse-topbar');
+await wait(60);
+check('顶栏可折叠且状态持久化', document.body.classList.contains('topbar-collapsed')
+  && JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').topbarCollapsed === true);
+check('顶栏折叠后按钮标签更新', $('#btn-collapse-topbar')?.getAttribute('aria-label') === '展开顶栏');
+click('#btn-collapse-topbar');
+await wait(60);
+check('顶栏可以重新展开', !document.body.classList.contains('topbar-collapsed'));
 
 check('初始未折叠', !document.body.classList.contains('nav-collapsed'));
 click('#btn-collapse-nav');
@@ -397,6 +407,19 @@ console.log('\n[3] 发普通消息');
 
 script = [textStream('知道自己在拖延，不算完成了任何事。\n\n告诉我，你原本准备做什么。')];
 await sendAndWait('我又拖延了');
+
+const input = $('#input');
+const beforeEnter = fetchLog.length;
+input.value = '第一行';
+const enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+input.dispatchEvent(enter);
+check('Enter 不会提交且保留输入内容', !enter.defaultPrevented && input.value === '第一行' && fetchLog.length === beforeEnter);
+check('聊天输入框是多行文本框', input instanceof window.HTMLTextAreaElement);
+script = [textStream('点击发送后收到')];
+input.value = '通过点击按钮发送';
+$('#btn-send').click();
+await waitIdle();
+check('点击发送按钮仍会提交', fetchLog.length > beforeEnter && $$('.msg.user .bubble').at(-1)?.textContent === '通过点击按钮发送');
 
 const userText = $('#messages .msg.user .bubble')?.textContent || '';
 const assistantBubbles = $$('.msg.assistant .bubble');
@@ -479,6 +502,8 @@ console.log('\n[6] 全部面板可切换并渲染');
 await openPanel('learning');
 check('学习入口按推进、回顾、积累分组', $$('#view-learning .learning-group').length === 3);
 check('学习工作台入口在桌面布局中完整呈现', $$('#view-learning [data-learning-panel]').length === 6);
+check('学习入口任务数按主要任务|杂事展示', /\d+\|\d+/.test($('#view-learning [data-learning-panel="tasks"]')?.textContent || ''),
+  $('#view-learning [data-learning-panel="tasks"]')?.textContent);
 
 let panelOk = 0;
 for (const panel of ['today', 'learning', 'habits', 'life', 'records', 'tasks', 'points', 'plans', 'reviews', 'profile']) {
@@ -742,6 +767,9 @@ check('**设定今日关键任务也要用户确认**（模型不替你决定今
 check('确认卡片写明了要设什么',
   ($('#pending-area .pending-card')?.textContent || '').includes('关键任务'),
   $('#pending-area .pending-card')?.textContent);
+check('关键任务确认卡显示任务名而不是 task 编号',
+  ($('#pending-area .pending-card')?.textContent || '').includes('原地更新测试任务'),
+  $('#pending-area .pending-card')?.textContent);
 
 click('#pending-area [data-confirm]');
 await waitFor(() => ($('#view-today')?.textContent || '').includes('原地更新测试任务'),
@@ -933,15 +961,20 @@ check('编辑时有删除按钮', $('#btn-del-time')?.style.display !== 'none');
 
 /* 改时长并保存 */
 $('#time-minutes').value = '55';
+$('#time-minutes').dispatchEvent(new window.Event('input', { bubbles: true }));
+eq('手动改时长会更新结束时间', $('#time-end')?.value, `${todayDate}T08:55`);
+$('#time-end').value = `${todayDate}T09:00`;
+$('#time-end').dispatchEvent(new window.Event('input', { bubbles: true }));
+eq('手动改结束时间会更新时长', $('#time-minutes')?.value, '60');
 $('#time-note').value = `改过-${stamp}`;
 $('#dlg-time').close('ok');
 await wait(900);
 
 const afterEdit = await timerMod.getTimeEntry(seed.id);
-eq('**编辑已落库：时长 33 → 55**', afterEdit?.actualMin, 55);
+eq('**编辑已落库：时长 33 → 60**', afterEdit?.actualMin, 60);
 check('备注已更新', afterEdit?.note === `改过-${stamp}`, afterEdit?.note);
 check('打上了「已修正」标记', afterEdit?.edited === true);
-check('面板已反映新时长', recText().includes('55'), recText().replace(/\s+/g, ' ').slice(0, 120));
+check('面板已反映新时长', recText().includes('60'), recText().replace(/\s+/g, ' ').slice(0, 120));
 
 /* 补记一段新的 */
 click('#rec-add-time');
@@ -1158,6 +1191,23 @@ click('#btn-refresh-panel');
 await wait(500);
 eq('顶栏恢复', $('#brand-name')?.textContent, '帕尼尼');
 check('档案流程全程没有报错', errors.length === 0, errors[0]);
+
+/* 记录草稿由保存按钮一次点击确认 */
+console.log('\n[16.5] 点击保存长期记忆草稿');
+const clickSaveMemory = `按钮保存记忆-${stamp}`;
+script = [
+  toolStream('save_memory', JSON.stringify({ text: clickSaveMemory, kind: 'preference', importance: 3 })),
+  textStream(`我整理了长期记忆草稿：${clickSaveMemory}。点下面的保存按钮即可写入。`),
+];
+sendText('把这条整理成长期记忆');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(450);
+check('长期记忆草稿显示单击保存按钮',
+  $('#pending-area [data-confirm]')?.textContent === '保存', $('#pending-area')?.textContent);
+click('#pending-area [data-confirm]');
+await wait(600);
+const savedClickMemory = (await dbMod.db.memories.toArray()).some(m => m.text === clickSaveMemory);
+check('点一次保存后记忆已写入且按钮收起', savedClickMemory && !$('#pending-area [data-confirm]'));
 
 /* ══════════ 17. 模型能自己开面板、导记录（不再只靠正则） ══════════ */
 

@@ -122,7 +122,7 @@ const CODE_TRIGGERS = [
   { action: 'panel_profile', tool: 'open_panel',          re: /查看用户档案|我的档案|用户档案/i },
   { action: 'panel_plans',   tool: 'open_panel',          re: /查看规划|我的规划|规划列表/i },
   { action: 'panel_sops',    tool: 'open_panel',          re: /查看\s*sop|我的\s*sop|sop\s*列表/i },
-  { action: 'panel_tasks',   tool: 'open_panel',          re: /查看任务|我的任务|任务列表/i },
+  { action: 'panel_tasks',   tool: 'open_panel',          re: /^\s*(?:请)?(?:查看|打开)(?:一下)?(?:我的)?任务(?:列表)?[。！!]?\s*$/i },
   { action: 'export_md',     tool: 'export_records',      re: /导出记录|导出数据|导出档案|备份记录/i },
 ];
 

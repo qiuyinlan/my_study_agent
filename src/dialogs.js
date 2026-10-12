@@ -54,7 +54,6 @@ export async function openSettings({ onChange, profile }) {
       persistKey: $('#set-persist').checked,
       baseUrl: $('#set-baseurl').value.trim() || DEFAULTS.baseUrl,
       model: $('#set-model').value.trim() || DEFAULTS.model,
-      reasonModel: $('#set-reason-model').value.trim() || DEFAULTS.reasonModel,
       enableTools: $('#set-tools').checked,
     });
     await saveProfile({
@@ -68,7 +67,6 @@ export async function openSettings({ onChange, profile }) {
   $('#set-persist').checked = s.persistKey;
   $('#set-baseurl').value = s.baseUrl;
   $('#set-model').value = s.model;
-  $('#set-reason-model').value = s.reasonModel;
   $('#set-tools').checked = s.enableTools;
   $('#set-tone').value = String(profile?.toneLevel ?? 5);
   $('#set-profanity').checked = profile?.allowProfanity ?? true;
@@ -932,28 +930,39 @@ export async function openTimeEntry(entryId = null, { onChanged, date = null } =
     $('#time-minutes').value = entry.actualMin ?? '';
   }
 
-  /** 关键：留空时长就按起止时间算，并当场把算法说清楚 */
-  const refreshDerived = () => {
+  const asLocalInput = date => {
+    const pad = n => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  const minutesBetween = () => {
     const s = fromLocalInput($('#time-start').value);
     const e = fromLocalInput($('#time-end').value);
-    const manual = $('#time-minutes').value;
+    if (!s || !e) return null;
+    const diff = Math.round((new Date(e) - new Date(s)) / 60000);
+    return diff > 0 && diff <= 24 * 60 ? diff : null;
+  };
+  const refreshDerived = () => {
     const el = $('#time-derived');
-    if (manual !== '') {
-      const diff = s && e ? Math.round((new Date(e) - new Date(s)) / 60000) : null;
-      el.innerHTML = `按填写值记 <b>${esc(manual)} 分钟</b>。`
-        + (diff !== null && diff !== Number(manual)
-          ? `起止时间相差 ${diff} 分钟 —— 两者不一致时以填写值为准。`
-          : '');
-      return;
+    const duration = minutesBetween();
+    const minutes = $('#time-minutes').value;
+    el.innerHTML = duration !== null
+      ? `记录时长：<b>${duration} 分钟</b>。改时长会同步结束时间。`
+      : minutes !== '' && Number(minutes) > 0
+        ? '请检查起止时间，或填写有效时长。'
+        : '<span style="color:var(--danger)">结束时间必须晚于开始时间，或填写有效时长。</span>';
+  };
+  const syncFromRange = () => {
+    const duration = minutesBetween();
+    if (duration !== null) $('#time-minutes').value = String(duration);
+    refreshDerived();
+  };
+  const syncEndFromDuration = () => {
+    const start = fromLocalInput($('#time-start').value);
+    const minutes = Number($('#time-minutes').value);
+    if (start && Number.isFinite(minutes) && minutes > 0 && minutes <= 24 * 60) {
+      $('#time-end').value = asLocalInput(new Date(new Date(start).getTime() + minutes * 60000));
     }
-    if (s && e) {
-      const d = Math.round((new Date(e) - new Date(s)) / 60000);
-      el.innerHTML = d > 0
-        ? `时长留空 → 按起止时间自动算出 <b>${d} 分钟</b>。`
-        : '<span style="color:var(--danger)">结束时间必须晚于开始时间。</span>';
-    } else {
-      el.innerHTML = '时长留空且没有完整的起止时间 —— 保存会失败。填一个吧。';
-    }
+    refreshDerived();
   };
   refreshDerived();
 
@@ -1014,9 +1023,9 @@ export async function openTimeEntry(entryId = null, { onChanged, date = null } =
       }
     };
 
-    $('#time-start').oninput = refreshDerived;
-    $('#time-end').oninput = refreshDerived;
-    $('#time-minutes').oninput = refreshDerived;
+    $('#time-start').oninput = syncFromRange;
+    $('#time-end').oninput = syncFromRange;
+    $('#time-minutes').oninput = syncEndFromDuration;
     dlg.addEventListener('close', onClose);
 
     $('#btn-del-time').onclick = async () => {

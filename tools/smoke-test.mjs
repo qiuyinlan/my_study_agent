@@ -670,6 +670,10 @@ check('识别出暂停监督', it.codeAction === 'suspend');
 
 it = commands.detectIntent('查看积分');
 check('识别出打开积分面板', it.codeAction === 'panel_points');
+it = commands.detectIntent('面试资料的任务列表里有几条？');
+eq('普通句子提到任务列表不触发面板导航', it.codeAction, null);
+it = commands.detectIntent('请打开我的任务列表');
+eq('明确的查看任务指令仍走快路径', it.codeAction, 'panel_tasks');
 
 it = commands.detectIntent('你能做什么');
 eq('「能做什么」不走代码快路径（交给模型用话讲）', it.codeAction, null);
@@ -736,6 +740,10 @@ out = await executeTool('save_task', JSON.stringify({
   title: '写论文引言', priority: 'P0', area: 'work', nextAction: '打开文档写三行',
 }));
 check('save_task 新建成功', !out.error, out.content?.slice(0, 80));
+out = await executeTool('save_task', JSON.stringify({
+  title: '整理桌面杂事', priority: 'P3', category: 'chore', area: 'life',
+}));
+check('save_task 会保存 AI 指定的杂事分类', !out.error && (await dbm.listTasks()).find(t => t.title === '整理桌面杂事')?.category === 'chore');
 
 out = await executeTool('manage_micro_habit', JSON.stringify({ action: 'add', title: '读书五分钟' }));
 check('AI 能新增全局微习惯', !out.error && out.content.includes('读书五分钟'));
@@ -786,6 +794,12 @@ check('计时真的启动了', (await timer.getActiveTimer()) !== null);
 out = await executeTool('timer_stop', '{}', { confirmed: true });
 check('timer_stop 确认后执行成功', !out.error);
 check('给出真实耗时', /\d+ 分钟/.test(out.content));
+
+const autoTimerTask = await dbm.upsertTask({ title: '唯一关键任务计时测试', state: 'READY', category: 'important' });
+await dbm.setKeyTasks([autoTimerTask.id]);
+out = await executeTool('timer_start', JSON.stringify({ plannedMin: 15 }), { confirmed: true });
+check('唯一关键任务下启动的计时自动关联该任务', !out.error && (await timer.getActiveTimer())?.taskId === autoTimerTask.id);
+await executeTool('timer_stop', '{}', { confirmed: true });
 
 /* 同一个工具重复请求，不该冒出多个按钮 */
 await executeTool('timer_start', JSON.stringify({ note: '重复测试1' }));
@@ -926,6 +940,10 @@ check('一行摘要可用', typeof line === 'string' && line.length > 0, line);
 /* ══════════════ 14. Markdown 导出（§十九）═════════════ */
 console.log('\n[14] Markdown 结构化导出');
 
+const exportSession = await dbm.createSession('导出会话测试');
+await dbm.addMessage({ sessionId: exportSession.id, role: 'user', content: '对话导出验证用户消息' });
+await dbm.addMessage({ sessionId: exportSession.id, role: 'assistant', content: '对话导出验证助手消息' });
+
 const md = await exportmd.buildMarkdownExport({ includeAll: true });
 check('导出非空', md.length > 500);
 for (const [label, needle] of [
@@ -940,14 +958,16 @@ for (const [label, needle] of [
   ['知识点', '九、知识点与复习'],
   ['下次继续监督', '十、下次继续监督的事项'],
   ['数据说明', '十一、数据说明'],
+  ['对话记录', '十二、对话记录'],
 ]) check(`包含「${label}」章节`, md.includes(needle), needle);
+check('Markdown 导出包含会话消息', md.includes('对话导出验证用户消息') && md.includes('对话导出验证助手消息'));
 
 check('导出记住了用户名', md.includes('小陈'));
 check('导出包含任务标题', md.includes('CS229'));
 check('导出包含一分钟启动版', md.includes('一分钟启动版'));
 check('导出含规划编号', md.includes('P-001'));
 check('导出标明数据来源区别', md.includes('自报') && md.includes('计时'));
-check('导出声明不含推测', md.includes('不含任何推测'));
+check('导出区分结构化事实和对话原文', md.includes('助手说法不代表已核实事实'));
 const st = exportmd.markdownStats(md);
 check('统计可用', st.lines > 30, `${st.lines} 行`);
 
