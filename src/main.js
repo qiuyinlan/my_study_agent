@@ -694,6 +694,16 @@ function wireTopbar() {
       ? '继续“聊聊我”学习档案访谈。请根据已有档案和访谈对话，只问下一个最重要的问题；一次只问一个，允许我跳过、暂停或结束。不要重复已经回答过的问题。'
       : '开始“聊聊我”学习档案访谈。先读取已有档案，再逐题了解我的学习背景和当前进度、目标、当前重点、适合的学习方式与节奏、可用时间、现实限制，以及拖延情境里的触发因素、我通常怎么做、什么支持有效。每次只问一个具体问题，不重复已有信息；允许我跳过、暂停或结束。不要询问 ADHD 或诊断状态。信息已覆盖或我提出结束后，整理完整档案草稿给我核对，得到确认后再保存。';
     setAboutInterviewActive(true);
+
+    // “聊聊我”使用独立会话，避免把档案访谈混进日常对话。
+    // 没有 API Key 时先沿用 send() 的设置提示，不额外创建空会话。
+    if (!loadSettings().apiKey) {
+      await send(prompt);
+      return;
+    }
+    await createSession('聊聊我');
+    await refreshChat();
+    await refreshPending();
     await send(prompt);
   };
   const exportMarkdown = async () => {
