@@ -28,9 +28,8 @@ import {
 export const PANELS = [
   { id: 'chat', title: 'AI 对话' },
   { id: 'tasks', title: '任务' },
-  { id: 'today', title: '今日' },
+  { id: 'today', title: '复盘' },
   { id: 'learning', title: '学习' },
-  { id: 'habits', title: '微习惯' },
   { id: 'life', title: '生活导航' },
 ];
 
@@ -424,8 +423,10 @@ export function renderTasks(s, h) {
         <div class="t-meta">掌握度 ${t.mastery ?? 0}/5　复习 ${t.reps || 0} 次　下次 ${(t.nextReviewAt || '').slice(0, 10) || '—'}</div>
       </div>`).join('')}</div>`);
   }
+  out.push('<section class="task-category task-microhabits"><div class="group-head">微习惯任务 <span class="n">每天</span></div><div data-task-microhabits></div></section>');
   out.push('</div>');
   el.innerHTML = out.join('');
+  renderMicroHabit(el.querySelector('[data-task-microhabits]'), { onChanged: h?.onMicroHabitChanged });
   el.querySelector('[data-new-task]')?.addEventListener('click', () => h.onNewTask?.());
   el.querySelectorAll('[data-task-date]').forEach(button => button.addEventListener('click', () => {
     selectedTaskDate = button.dataset.taskDate;

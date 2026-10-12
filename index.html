@@ -37,7 +37,7 @@
     <section class="panel" id="panel">
       <div class="panel-head">
         <button class="ghost panel-back" id="btn-back-learning" title="返回学习工作台">← 返回学习</button>
-        <h2 id="panel-title">今日</h2>
+        <h2 id="panel-title">复盘</h2>
         <span class="sub" id="panel-sub"></span>
         <span class="updated" id="panel-updated"></span>
         <button class="icon-btn" id="btn-refresh-panel" title="立即刷新"></button>
@@ -66,7 +66,6 @@
       <div class="chat-head">
         <strong>AI 对话</strong>
         <span>把问题、计划和当天状态交给帕尼尼一起处理</span>
-        <button class="ghost" id="btn-about-me" type="button" title="开始或继续关于我的逐题访谈">关于我</button>
         <button class="icon-btn" id="btn-chat-context" type="button" title="显示内容侧栏" aria-label="显示内容侧栏"></button>
       </div>
       <div class="messages" id="messages"></div>
@@ -74,6 +73,7 @@
       <form class="composer" id="composer">
         <textarea id="input" rows="1"
           placeholder="说点什么…"></textarea>
+        <button class="ghost" id="btn-about-me" type="button" title="开始或继续关于我的逐题访谈">关于我</button>
         <button type="submit" id="btn-send" class="primary">发送</button>
       </form>
     </section>

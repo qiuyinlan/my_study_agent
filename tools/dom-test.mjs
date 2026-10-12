@@ -239,7 +239,7 @@ const click = (sel) => {
 // 一级导航只保留四项；学习内页通过学习工作台卡片进入。
 const openPanel = async (panel) => {
   if (['today', 'learning', 'habits', 'life'].includes(panel)) {
-    click(`.nav-btn[data-panel="${panel}"]`);
+    click(`.nav-btn[data-panel="${panel === 'habits' ? 'tasks' : panel}"]`);
   } else {
     click('.nav-btn[data-panel="learning"]');
     await wait(80);
@@ -335,12 +335,12 @@ check('对话区显示空状态提示', $('#messages .placeholder') !== null);
 console.log('\n[2] 界面结构（左导航带文字 + SVG 图标 + 可折叠）');
 
 const navBtns = $$('.nav-btn');
-check('导航渲染 AI 对话、任务和四个内容入口', navBtns.length === 6, String(navBtns.length));
+check('导航渲染 AI 对话、任务和三个内容入口', navBtns.length === 5, String(navBtns.length));
 
 const labels = navBtns.map(b => b.querySelector('.nav-label')?.textContent?.trim());
 check('每项都有文字标签', labels.every(Boolean), labels.join(','));
 check('标签就是一级面板名',
-  labels.join(',') === 'AI 对话,任务,今日,学习,微习惯,生活导航', labels.join(','));
+  labels.join(',') === 'AI 对话,任务,复盘,学习,生活导航', labels.join(','));
 check('**使用内联 SVG 图标，不再是 emoji**',
   navBtns.every(b => b.querySelector('.nav-icon svg')), '有项目缺 SVG');
 check('导航区完全没有 emoji',
@@ -367,9 +367,9 @@ check('展开侧栏后图标状态和提示更新',
 click('#btn-chat-context');
 await wait(60);
 check('再次点击侧栏图标可收起内容面板', !$('.app')?.classList.contains('chat-context'));
-click('.nav-btn[data-panel="habits"]');
+click('.nav-btn[data-panel="tasks"]');
 await wait(100);
-check('从 AI 对话选择内容入口后返回对应页面', !$('.app')?.classList.contains('chat-mode') && $('#view-habits')?.classList.contains('active'));
+check('从 AI 对话选择内容入口后返回任务页面', !$('.app')?.classList.contains('chat-mode') && $('#view-tasks')?.classList.contains('active'));
 check('品牌标识不含 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test($('.brand')?.textContent || ''));
 check('三个折叠控件都有图标',
   ['#btn-collapse-nav', '#btn-collapse-panel', '#btn-reveal-panel']
@@ -507,7 +507,7 @@ check('学习入口任务数按主要任务|杂事展示', /\d+\|\d+/.test($('#v
   $('#view-learning [data-learning-panel="tasks"]')?.textContent);
 
 let panelOk = 0;
-for (const panel of ['today', 'learning', 'habits', 'life', 'records', 'tasks', 'points', 'plans', 'reviews', 'profile']) {
+for (const panel of ['today', 'learning', 'life', 'records', 'tasks', 'points', 'plans', 'reviews', 'profile']) {
   await openPanel(panel);
   const view = $(`#view-${panel}`);
   const active = view?.classList.contains('active');
@@ -519,27 +519,12 @@ for (const panel of ['today', 'learning', 'habits', 'life', 'records', 'tasks', 
   else check(`面板 ${panel} 可切换并渲染`, false,
     `active=${active} rendered=${rendered} navActive=${navActive} titled=${titled}`);
 }
-check('全部面板都能切换、渲染、导航高亮同步', panelOk === 10, `${panelOk}/10`);
+check('全部面板都能切换、渲染、导航高亮同步', panelOk === 9, `${panelOk}/9`);
 await openPanel('tasks');
 check('任务页显示待完成主要任务数量', $('#view-tasks [data-pending-important]') !== null);
 check('任务页显示待完成杂事数量', $('#view-tasks [data-pending-chore]') !== null);
 check('切换面板期间没有报错', errors.length === 0, errors[0]);
-await openPanel('habits');
-click('[data-habit-fab]');
-const addHabitForm = $('#view-habits [data-add-habit]');
-addHabitForm.querySelector('input').value = 'DOM 测试微习惯';
-addHabitForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-check('新增微习惯后显示编辑和删除按钮',
-  Boolean($('#view-habits [data-habit-row] [data-habit-edit]') && $('#view-habits [data-habit-row] [data-habit-delete]')));
-click('#view-habits [data-habit-edit]');
-const editHabitForm = $('#view-habits [data-habit-edit-form]');
-editHabitForm.querySelector('input').value = '已编辑微习惯';
-editHabitForm.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-check('行内编辑可以保存新名称', ($('#view-habits [data-habit-row]')?.textContent || '').includes('已编辑微习惯'));
-click('#view-habits [data-habit-id]');
-check('打卡按钮仍可独立切换完成状态', $('#view-habits [data-habit-row] .habit-row')?.classList.contains('done'));
-click('#view-habits [data-habit-delete]');
-check('确认删除后移除微习惯', $('#view-habits [data-habit-row]') === null);
+check('任务页底部包含每日微习惯任务', $('#view-tasks [data-task-microhabits]') !== null);
 await openPanel('life');
 const lifeEntries = $$('.life-entry-card');
 check('生活导航显示四个入口和 SVG 图标', lifeEntries.length === 4 && lifeEntries.every(card => card.querySelector('.life-entry-icon svg')));
