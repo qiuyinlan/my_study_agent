@@ -5,7 +5,7 @@
 
 import { $, $$, esc, toast, stateBadge, priorityBadge, masteryDots, fmtMin, icon } from './ui.js';
 import {
-  db, listTasks, listTopics, getProfile, profileCompletion, ADHD_STATUS,
+  db, listTasks, listTopics, getProfile, profileCompletion,
   PRIORITIES, AREAS, DEFAULT_PROFILE,
   getMeta, setKeyTasks,
 } from './db.js';
@@ -41,7 +41,7 @@ const PANEL_META = [
   { id: 'plans', title: '计划' },
   { id: 'sops', title: 'SOP' },
   { id: 'reviews', title: '复盘' },
-  { id: 'profile', title: '档案' },
+  { id: 'profile', title: '学习档案' },
 ];
 
 export function renderHabits(s, h) {
@@ -777,18 +777,18 @@ export async function renderReviews(s, h) {
 /* ══════════════ 档案 ══════════════ */
 
 const PROFILE_ROWS = [
-  ['userName', '称呼'],
-  ['supervisorName', '监督员称呼'],
-  ['supervisorImage', '偏好形象'],
-  ['adhdStatus', 'ADHD 状态'],
-  ['topProblems', '当前最困扰的三个问题'],
-  ['about', '个人背景与当前情况'],
-  ['goals', '个人目标'],
-  ['focusAreas', '重点监督事项'],
+  ['about', '学习背景与当前情况'],
+  ['goals', '学习目标'],
+  ['focusAreas', '当前学习重点'],
+  ['learningPreferences', '学习方式与节奏'],
+  ['availableTime', '可用学习时间'],
+  ['constraints', '现实限制'],
+  ['topProblems', '学习困难或拖延情境'],
   ['procrastinationPatterns', '常见拖延行为'],
+  ['userName', '称呼'],
+  ['supervisorName', '学习助手称呼'],
   ['rewardPreference', '有效奖励方式'],
   ['acceptableCorrections', '可接受的纠偏方式'],
-  ['selfWords', '自我描述'],
   ['otherNeeds', '其他需求'],
 ];
 
@@ -802,16 +802,18 @@ export async function renderProfile(s, h) {
   const pct = Math.round(c.requiredDone / c.requiredTotal * 100);
   const out = [];
 
+  out.push('<div class="section-title">学习情况</div>');
+
   out.push(`<div class="completion-bar">
-    <span>必填 ${c.requiredDone}/${c.requiredTotal}</span>
+    <span>核心 ${c.requiredDone}/${c.requiredTotal}</span>
     <span class="track"><i style="width:${pct}%"></i></span>
-    <span>可选 ${c.optionalDone}/${c.optionalTotal}</span>
+    <span>补充 ${c.optionalDone}/${c.optionalTotal}</span>
   </div>`);
 
   if (!c.isOnboarded) {
     out.push(`<div class="card warn">
-      <div class="card-title">初始化还没完成</div>
-      <div class="card-sub">还差：${c.missingRequired.map(k => PROFILE_ROWS.find(r => r[0] === k)?.[1] || k).join('、') || `（点「标记完成」即可）`}</div>
+      <div class="card-title">学习档案还可补充</div>
+      <div class="card-sub">还可补充：${c.missingRequired.map(k => PROFILE_ROWS.find(r => r[0] === k)?.[1] || k).join('、') || `（可标记整理完成）`}</div>
     </div>`);
   }
 
@@ -822,9 +824,15 @@ export async function renderProfile(s, h) {
     </div>`);
   }
 
+  const supportFields = new Set(['userName', 'supervisorName', 'rewardPreference', 'acceptableCorrections', 'otherNeeds']);
+  let supportHeadingShown = false;
   for (const [k, label] of PROFILE_ROWS) {
+    if (supportFields.has(k) && !supportHeadingShown) {
+      out.push('<div class="section-title">沟通与支持偏好</div>');
+      supportHeadingShown = true;
+    }
     const v = p[k];
-    const text = k === 'adhdStatus' ? (ADHD_STATUS[v] || '') : v;
+    const text = v;
     out.push(`<div class="profile-row">
       <span class="pk">${label}</span>
       <span class="pv ${text ? '' : 'missing'}">${text ? esc(text) : '未记录'}</span>
@@ -842,7 +850,7 @@ export async function renderProfile(s, h) {
   </div>`);
 
   out.push(`<div class="dlg-actions" style="margin-top:14px">
-    <button class="primary ghost" id="btn-edit-profile">编辑档案</button>
+    <button class="primary ghost" id="btn-edit-profile">编辑学习档案</button>
     ${p.suspendUntil ? '<button class="ghost" id="btn-resume">解除暂停监督</button>' : ''}
   </div>`);
 

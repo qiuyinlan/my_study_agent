@@ -20,7 +20,7 @@ import { listChatWrites, parseChatWriteDecision, removeChatWrites } from './chat
 
 const MAX_ITERATIONS = 8;
 
-const PROFILE_INTRO_RE = /(?:我叫|我的名字(?:是|叫)|称呼我(?:为|叫)?|你可以叫我|以后叫我)\s*[\p{L}\p{N}_-]{1,20}|(?:我的(?:情况|背景|目标|经历|困扰)(?:是|：|:)|我(?:目前|最近|一直|平时|长期以来)(?:在|有|都|总是|容易|经常|会|是)|我(?:确诊|怀疑|被诊断为).{0,12}ADHD|我不喜欢.{0,30}(?:说法|提醒|称呼|表达|语气)|我希望你.{0,20}(?:提醒|监督|称呼|说话|对我))/iu;
+const PROFILE_INTRO_RE = /(?:我叫|我的名字(?:是|叫)|称呼我(?:为|叫)?|你可以叫我|以后叫我)\s*[\p{L}\p{N}_-]{1,20}|(?:我的(?:情况|背景|目标|经历|困扰)(?:是|：|:)|我(?:目前|最近|一直|平时|长期以来)(?:在|有|都|总是|容易|经常|会|是)|我不喜欢.{0,30}(?:说法|提醒|称呼|表达|语气)|我希望你.{0,20}(?:提醒|监督|称呼|说话|对我))/iu;
 const PROFILE_QUESTION_RE = /(?:怎么称呼你|你叫什么|你的名字|希望我(?:怎么|如何)称呼你|你(?:目前|现在|最近)的?(?:情况|背景|目标|困扰|工作|学习)|你(?:目前|现在)(?:在做什么|是什么情况|最困扰什么)|说说你的(?:情况|背景|目标|经历|困扰)|介绍一下你自己|你希望我(?:怎么|如何)(?:提醒|监督|称呼))/iu;
 const PROFILE_DONT_SAVE_RE = /不要.{0,18}(?:记|保存|存).{0,18}(?:档案|名字|个人信息|背景|情况)/u;
 const PROFILE_SKIP_RE = /不想(?:说|回答|告诉)|不方便说|暂时不想|先跳过|跳过这个问题/u;
@@ -56,7 +56,7 @@ async function autoTitle(session, firstUserText) {
  * @param {AbortSignal} [o.signal]
  * @param {(e:object)=>void} [o.onEvent]
  */
-export async function runTurn({ userText, codeNote = '', model = null, signal, onEvent }) {
+export async function runTurn({ userText, codeNote = '', model = null, signal, onEvent, profileInterview = false }) {
   const emit = e => { try { onEvent?.(e); } catch (err) { console.error('[onEvent]', err); } };
 
   const session = await ensureSession();
@@ -79,7 +79,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
         completedIds.push(item.id);
         results.push(out.content || `已保存 ${item.tool}`);
         emit({ type: 'tool_start', name: item.tool, args: JSON.stringify(item.args) });
-        emit({ type: 'tool_result', name: item.tool, ok: true, summary: out.summary || item.tool, toast: out.toast || '' });
+        emit({ type: 'tool_result', name: item.tool, ok: true, summary: out.summary || item.tool, toast: out.toast || '', confirmed: true });
         if (out.refresh) emit({ type: 'refresh' });
       }
     }
@@ -110,7 +110,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
       // 全部工具每轮都下发 —— 见 tools.js 里关于"分组下发为什么被移除"的说明
       const { tools } = toolsForTurn();
       if (iter === 0) emit({ type: 'tools_selected', count: tools.length });
-      const forceProfileUpdate = iter === 0 && !decision && shouldForceProfileUpdate(userText, working);
+      const forceProfileUpdate = iter === 0 && !decision && !profileInterview && shouldForceProfileUpdate(userText, working);
 
       const res = await streamChat({
         messages: working,

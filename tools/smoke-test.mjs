@@ -538,24 +538,34 @@ check('非法字段被拒绝', threw);
 /* ══════════════ 9. 帕尼尼人设与能力声明 ══════════════ */
 console.log('\n[9] 人设、语气、能力声明');
 
-check('ADHD 状态不再是档案必填项', !dbm.REQUIRED_PROFILE_KEYS.includes('adhdStatus'));
-check('没有填写 ADHD 状态也能开始使用', dbm.profileCompletion({
-  userName: '小陈', supervisorName: '帕尼尼', supervisorImage: '男性青年',
-  topProblems: '任务启动困难', focusAreas: '学习', procrastinationPatterns: '刷手机',
+check('学习档案核心项包括学习方式', dbm.REQUIRED_PROFILE_KEYS.includes('learningPreferences'));
+check('学习档案不依赖诊断信息', !dbm.REQUIRED_PROFILE_KEYS.includes('adhdStatus'));
+check('没有诊断信息也能完成档案核心项', dbm.profileCompletion({
+  about: '正在学习前端开发', goals: '完成作品集', focusAreas: '项目练习',
+  learningPreferences: '先看例子再动手',
 }).canStart);
-check('人设不会主动询问 ADHD 状态', persona.SAFETY_RULES.includes('不要主动询问或推测'));
+check('人设不会询问 ADHD 或其他诊断状态', persona.SAFETY_RULES.includes('不询问用户的 ADHD 或其他诊断状态'));
 
 const prof = await dbm.saveProfile({
   userName: '小陈',
-  supervisorImage: '男性青年',
   adhdStatus: 'diagnosed',
   topProblems: '晚上起不来、计划太多、论文卡住',
   focusAreas: '每天开始学习、论文推进',
+  learningPreferences: '短时专注，边做边学',
+  availableTime: '工作日晚上',
+  constraints: '暂时只有手机',
   procrastinationPatterns: '一坐下先刷手机',
   taboos: ['不要拿我跟别人比'],
   toneLevel: 5,
   allowProfanity: true,
 });
+
+const safeProfileBlock = memory.fmtProfileBlock(prof);
+check('旧档案中的 ADHD 字段不会注入模型上下文',
+  !safeProfileBlock.includes('ADHD') && !safeProfileBlock.includes('diagnosed'));
+const safeProfileRead = await executeTool('get_profile', {});
+check('档案读取工具不暴露旧诊断字段',
+  !safeProfileRead.content.includes('ADHD') && !safeProfileRead.content.includes('diagnosed'));
 
 const tone5 = persona.toneBlock(prof);
 check('强度 5 生效', tone5.includes('完全放开'));
@@ -598,14 +608,17 @@ check('禁止攻击人格', sysFull.includes('不攻击用户的基本人格'));
 check('禁止用羞辱替代任务管理', sysFull.includes('不用羞辱替代真正的任务管理'));
 check('禁止剥夺睡眠饮食', sysFull.includes('剥夺睡眠'));
 check('不诊断疾病/不建议药物', sysFull.includes('不诊断疾病'));
-check('ADHD 不归因于懒惰', sysFull.includes('不将 ADHD 相关困难简单归结为懒惰'));
+check('学习困难不归咎于懒惰', sysFull.includes('不将注意力或执行困难简单归结为懒惰'));
 check('未回复不算失败', sysFull.includes('不把用户未回复视为任务失败'));
 check('拖延流程不预设用户正在逃避', sysFull.includes('不要预设这是逃避'));
 check('当前做不了时先接受并提供灵活选项',
   sysFull.includes('停止催促，询问他想等条件恢复、改期、换成现在能做的其他事'));
 check('包含核心信条', sysFull.includes('计划不是成果'));
 check('声明了承诺类动作要用户点确认', sysFull.includes('必须用户自己点按钮'));
-check('用户提供个人背景时要求本轮整理档案草稿', sysFull.includes('本轮就调用 update_profile 整理待保存草稿'));
+check('学习档案访谈逐题进行且不询问诊断',
+  sysFull.includes('只问一个问题') && sysFull.includes('不询问 ADHD 或其他诊断状态'));
+check('访谈回答不会每题自动生成草稿', sysFull.includes('不要每答一题就生成保存草稿'));
+check('访谈结束需用户确认后保存', sysFull.includes('只有用户明确确认后才保存'));
 check('用户说现在做不了时无需证明且先接受',
   sysFull.includes('这本身就是当前现实限制') && sysFull.includes('不要求他解释、证明')
     && sysFull.includes('先接受并停止催促'));
@@ -617,7 +630,10 @@ check('工具结果冲突时必须纠正并以结果为准',
 check('背景资料和目标有明确的档案字段', sysFull.includes('存入 about') && sysFull.includes('存入 goals'));
 const profileTool = tools.TOOL_DEFS.find(d => d.function.name === 'update_profile');
 check('档案工具 schema 暴露背景和目标字段',
-  'about' in profileTool.function.parameters.properties && 'goals' in profileTool.function.parameters.properties);
+  'about' in profileTool.function.parameters.properties && 'goals' in profileTool.function.parameters.properties
+    && 'learningPreferences' in profileTool.function.parameters.properties
+    && 'availableTime' in profileTool.function.parameters.properties
+    && !('adhdStatus' in profileTool.function.parameters.properties));
 
 /* 段落顺序：稳定 → 半稳定 → 易变。顺序错了会让上下文缓存整段失效。
    注意用带 `# ` 的标题去定位，否则会命中安全规则里对「平台实际能力」的引用。 */

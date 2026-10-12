@@ -303,6 +303,7 @@ async function confirmPending(pendingId) {
     try {
       const out = await executeTool(item.tool, item.args, { confirmed: true, sessionId: item.sessionId || s.id });
       if (out.error) throw new Error(out.content || '保存失败');
+      if (item.tool === 'update_profile' && aboutInterview.active) setAboutInterviewActive(false);
       await removeChatWrites([pendingId]);
       await addMessage({ sessionId: item.sessionId || s.id, role: 'assistant', content: out.content || `已保存：${item.tool}` });
       toast(out.summary || '已保存', 'ok');
@@ -441,6 +442,7 @@ function handleEvent(e) {
       // 有些工具（比如更新档案）会带回一句给用户看的回执 ——
       // 否则他说完"叫我小明"，只能自己翻面板确认到底存没存上
       if (e.toast) toast(e.toast, e.ok === false ? 'err' : 'ok');
+      if (e.name === 'update_profile' && e.confirmed) setAboutInterviewActive(false);
       break;
     case 'pending': refreshPending(); break;
     // 模型可以帮用户切到相关面板（工具层返回 openPanel，不直接碰 DOM）
@@ -470,7 +472,9 @@ async function send(text, { skipIntent = false } = {}) {
   const content = String(text || '').trim();
   if (!content || busy) return;
 
-  if (/^(?:暂停|先暂停|暂停关于我|结束关于我|完成关于我|先到这里)(?:访谈)?[。.!！?？]*$/i.test(content)) {
+  const endingAboutInterview = aboutInterview.active
+    && /^(?:暂停|先暂停|暂停关于我|结束关于我|完成关于我|结束访谈|完成访谈|先到这里)(?:访谈)?[。.!！?？]*$/i.test(content);
+  if (endingAboutInterview) {
     setAboutInterviewActive(false);
   }
 
@@ -484,6 +488,9 @@ async function send(text, { skipIntent = false } = {}) {
   /* 1) 意图识别（零 token） */
   const intent = detectIntent(content);
   let codeNote = '';
+  if (aboutInterview.active || endingAboutInterview) {
+    codeNote = '【聊聊我访谈状态】正在逐题建立学习档案。先用 get_profile 查看已有资料，并结合本次访谈历史检查哪些内容还没问清：学习背景和当前进度、学习目标、当前重点、适合的学习方式与节奏、可用时间、现实限制，以及拖延情境中的触发因素/通常反应/什么帮助有效。每轮只问一个具体问题，不要把多个子问题塞在同一轮；跳过已有信息。用户表示现在做不了、想暂停或不想回答时直接接受，不要求解释或证明。不要询问 ADHD 或任何诊断状态。访谈中先将回答保留在对话上下文，不要每答一题就调用 update_profile；用户要求结束或上述内容已充分覆盖后，整理明确的信息调用 update_profile 生成待确认草稿，并让用户核对。确认前不能说已保存。';
+  }
 
   /* 2) 代码动作优先执行 */
   if (!skipIntent && intent.codeAction) {
@@ -506,6 +513,7 @@ async function send(text, { skipIntent = false } = {}) {
     await runTurn({
       userText: content,
       codeNote,
+      profileInterview: aboutInterview.active || endingAboutInterview,
       model: null,
       signal: controller.signal,
       onEvent: handleEvent,
@@ -668,8 +676,8 @@ function wireTopbar() {
     if (busy) { toast('等当前对话说完再开始访谈', 'warn'); return; }
     setWorkspaceMode('chat');
     const prompt = aboutInterview.active
-      ? '继续“关于我”访谈。请根据本次对话和已有档案，只问下一个最重要的问题；一次只问一个，允许我跳过或暂停。不要重复已经回答过的问题。访谈结束时先整理给我核对，得到确认后再保存。'
-      : '开始“关于我”访谈：请先查看已有档案，只问我一个最重要的问题，重点了解我的拖延触发情境、现实限制、通常会怎么做、什么帮助有效，以及我希望你如何监督。一次只问一个问题，允许我跳过或暂停；访谈结束前先整理给我核对，得到确认后再保存。';
+      ? '继续“聊聊我”学习档案访谈。请根据已有档案和访谈对话，只问下一个最重要的问题；一次只问一个，允许我跳过、暂停或结束。不要重复已经回答过的问题。'
+      : '开始“聊聊我”学习档案访谈。先读取已有档案，再逐题了解我的学习背景和当前进度、目标、当前重点、适合的学习方式与节奏、可用时间、现实限制，以及拖延情境里的触发因素、我通常怎么做、什么支持有效。每次只问一个具体问题，不重复已有信息；允许我跳过、暂停或结束。不要询问 ADHD 或诊断状态。信息已覆盖或我提出结束后，整理完整档案草稿给我核对，得到确认后再保存。';
     setAboutInterviewActive(true);
     await send(prompt);
   };
@@ -770,7 +778,7 @@ async function boot() {
   // 没有 Key 时不再每次启动强制弹出设置；发送消息时会按需打开。
   if (loadSettings().apiKey && !profile.onboardedAt) {
     // §4：初始化没完成就提示开始
-    toast('档案还没建立。跟帕尼尼说句话，他会开始问你。');
+    toast('学习档案还未整理。点击「聊聊我」开始逐题访谈。');
   }
 
   $('#input')?.focus();

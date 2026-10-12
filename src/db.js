@@ -46,13 +46,6 @@ export const AREAS = {
   other: { label: '其他', icon: '·' },
 };
 
-export const ADHD_STATUS = {
-  diagnosed:    '已确诊',
-  suspected:    '自我怀疑',
-  unevaluated:  '尚未评估',
-  undisclosed:  '不愿透露',
-};
-
 /* ══════════════ Schema ══════════════ */
 
 db.version(1).stores({
@@ -109,7 +102,6 @@ db.version(2).stores({
   // 档案：补齐 12 项之外的监督相关字段
   await tx.table('profile').toCollection().modify(p => {
     p.supervisorName = p.supervisorName || '帕尼尼';
-    p.supervisorImage = p.supervisorImage || '男性青年';
     p.toneLevel = p.toneLevel ?? 5;
     p.allowProfanity = p.allowProfanity ?? true;
     p.taboos = p.taboos || [];
@@ -122,17 +114,17 @@ db.version(2).stores({
 
 export const DEFAULT_PROFILE = {
   id: 'me',
-  // §四 的 12 项
+  // 学习档案
   userName: '',            // 1  希望被如何称呼
   supervisorName: '帕尼尼', // 2  希望如何称呼监督员
-  supervisorImage: '男性青年', // 3  偏好的性别或形象
-  adhdStatus: '',          // 4  diagnosed | suspected | unevaluated | undisclosed
   topProblems: '',         // 5  当前最困扰的三个问题
   focusAreas: '',          // 6  希望重点监督的事项
   procrastinationPatterns: '', // 7  最容易出现的拖延行为
+  learningPreferences: '', // 学习方式与节奏偏好
+  availableTime: '',       // 可用于学习的时间
+  constraints: '',         // 现实限制与暂时做不了的情况
   rewardPreference: '',    // 8  最有效的奖励方式（可选）
   acceptableCorrections: '', // 9  可接受的提醒/纠偏方式（可选）
-  selfWords: '',           // 10 用三个词描述自己（可选）
   taboos: [],              // 11 不喜欢的表达方式与交互雷区（可选，数组）
   otherNeeds: '',          // 12 其他需求（可选）
 
@@ -148,31 +140,31 @@ export const DEFAULT_PROFILE = {
   updatedAt: null,
 };
 
-/** 12 项档案里哪些是必填（其余可选，可后补） */
+/** 学习档案的核心信息；其余偏好可后补。 */
 export const REQUIRED_PROFILE_KEYS = [
-  'userName', 'supervisorName', 'supervisorImage',
-  'topProblems', 'focusAreas', 'procrastinationPatterns',
+  'about', 'goals', 'focusAreas', 'learningPreferences',
 ];
 export const OPTIONAL_PROFILE_KEYS = [
-  'rewardPreference', 'acceptableCorrections', 'selfWords', 'taboos', 'otherNeeds',
+  'userName', 'topProblems', 'procrastinationPatterns', 'availableTime', 'constraints',
+  'rewardPreference', 'acceptableCorrections', 'taboos', 'otherNeeds',
 ];
 
 /** 档案字段的中文名。提示词、工具回执、界面共用一份，免得各写一遍写岔。 */
 export const PROFILE_LABELS = {
   userName: '希望被如何称呼',
   supervisorName: '希望如何称呼监督员',
-  supervisorImage: '偏好的监督员性别或形象',
-  adhdStatus: 'ADHD 状态',
-  topProblems: '当前最困扰的三个问题',
-  focusAreas: '希望重点监督的事项',
+  topProblems: '学习困难或拖延情境',
+  focusAreas: '当前学习重点',
   procrastinationPatterns: '最容易出现的拖延行为',
   rewardPreference: '最有效的奖励方式',
   acceptableCorrections: '可接受的提醒或纠偏方式',
-  selfWords: '用三个词描述自己',
   taboos: '不喜欢的表达方式和交互雷区',
   otherNeeds: '其他需求',
-  about: '个人背景',
-  goals: '个人目标',
+  about: '学习背景与当前情况',
+  goals: '学习目标',
+  learningPreferences: '学习方式与节奏偏好',
+  availableTime: '可用学习时间',
+  constraints: '现实限制',
 };
 
 export function profileCompletion(p) {

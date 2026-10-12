@@ -280,6 +280,7 @@ localStorage.setItem('msa.ui.v1', JSON.stringify({ currentPanel: 'tasks', worksp
 await import('../src/main.js');
 check('深度模式入口已移除', $('#btn-depth') === null && $('#set-reason-model') === null);
 check('AI 对话有「聊聊我」入口', $('#btn-about-me')?.textContent === '聊聊我');
+check('学习档案编辑表单不询问 ADHD 状态', !$('#dlg-profile')?.textContent.includes('ADHD'));
 await waitFor(() => $('#view-tasks')?.classList.contains('active') && $('.app')?.classList.contains('chat-mode'), { label: 'restore workspace' });
 check('Saved panel restored on boot', $('#view-tasks').classList.contains('active'));
 check('Saved chat mode restored on boot', $('.app').classList.contains('chat-mode'));
@@ -563,7 +564,7 @@ const profileText = $('#view-profile')?.textContent || '';
 check('档案面板渲染了字段名', profileText.includes('称呼'));
 check('未填项显示「未记录」而不是留空', profileText.includes('未记录'), profileText.slice(0, 120));
 check('显示表达强度', profileText.includes('表达强度'));
-check('显示初始化进度', profileText.includes('必填'));
+check('显示学习档案核心和补充完成度', profileText.includes('核心') && profileText.includes('补充'));
 
 /* ══════════ 9. 新对话 ══════════ */
 
@@ -1084,8 +1085,8 @@ await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(400);
 
 script = [
-  toolStream('update_profile', JSON.stringify({ userName: '小明', about: '正在准备 Agent 开发岗面试' })),
-  textStream('我整理了档案草稿：称呼是小明，最近在准备 Agent 开发岗面试。确认保存吗？'),
+  toolStream('update_profile', JSON.stringify({ userName: '小明', about: '正在准备 Agent 开发岗面试', learningPreferences: '边做边学', availableTime: '工作日晚上', constraints: '目前只有手机' })),
+  textStream('我整理了学习档案草稿：称呼是小明，正在准备 Agent 开发岗面试，偏好边做边学，通常工作日晚上有时间，目前只有手机。确认保存吗？'),
 ];
 const profileCallStart = fetchLog.length;
 sendText('小明，最近在准备 Agent 开发岗面试。');
@@ -1109,6 +1110,9 @@ await wait(700);
 const profAfter = await dbMod.getProfile();
 eq('**确认后「叫我小明」存进档案**', profAfter.userName, '小明');
 eq('个人背景在确认后写入档案', profAfter.about, '正在准备 Agent 开发岗面试');
+eq('学习偏好在确认后写入档案', profAfter.learningPreferences, '边做边学');
+eq('可用时间在确认后写入档案', profAfter.availableTime, '工作日晚上');
+eq('现实限制在确认后写入档案', profAfter.constraints, '目前只有手机');
 
 const toastText = $('#toasts')?.textContent || '';
 check('**弹出了回执提示，不用自己去翻面板**', toastText.includes('档案已更新'),

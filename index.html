@@ -302,44 +302,46 @@
 <!-- ═══════════ 档案（§四 初始化）═══════════ -->
 <dialog id="dlg-profile">
   <form method="dialog" class="dlg">
-    <h3>用户档案</h3>
+    <h3>学习档案</h3>
     <div class="status" id="profile-status"></div>
 
-    <div class="grid2">
-      <label>希望我如何称呼你<input type="text" id="pf-username" placeholder="名字或外号"></label>
-      <label>你希望如何称呼监督员<input type="text" id="pf-supervisor" placeholder="帕尼尼"></label>
-    </div>
-
-    <label>偏好的监督员性别或形象
-      <input type="text" id="pf-image" placeholder="例如：男性青年">
+    <label>学习背景与当前情况
+      <textarea id="pf-about" rows="3" placeholder="正在学什么、目前进度或相关背景"></textarea>
     </label>
 
-    <label>ADHD 状态
-      <select id="pf-adhd"></select>
-    </label>
-    <small class="hint">可选。只用于你主动填写时调整建议，不填写也不影响使用，AI 不会主动追问。</small>
-
-    <label>当前最困扰你的三个问题
-      <textarea id="pf-problems" rows="2" placeholder="按顺序写，越具体越好"></textarea>
+    <label>学习目标
+      <textarea id="pf-goals" rows="2" placeholder="近期或长期希望达成什么"></textarea>
     </label>
 
-    <label>个人背景与当前情况
-      <textarea id="pf-about" rows="3" placeholder="记录你主动分享、以后对话可能用得上的背景"></textarea>
+    <label>当前学习重点
+      <textarea id="pf-focus" rows="2" placeholder="现在最希望推进的科目、项目或能力"></textarea>
     </label>
 
-    <label>个人目标
-      <textarea id="pf-goals" rows="2" placeholder="记录你明确提到的长期或阶段目标"></textarea>
+    <label>适合你的学习方式和节奏
+      <textarea id="pf-learning-preferences" rows="2" placeholder="例如：短时专注、先看例子、边做边学"></textarea>
     </label>
 
-    <label>希望重点监督哪些事
-      <textarea id="pf-focus" rows="2" placeholder="例如：每天开始学习、别熬夜、论文推进"></textarea>
+    <label>可用于学习的时间
+      <textarea id="pf-available-time" rows="2" placeholder="通常哪些时段有空、一次大约多久"></textarea>
     </label>
 
-    <label>最容易出现的拖延行为
-      <textarea id="pf-procrast" rows="2" placeholder="例如：一坐下先刷手机、任务太大就不动"></textarea>
+    <label>现实限制
+      <textarea id="pf-constraints" rows="2" placeholder="设备、环境、精力或时间方面的限制"></textarea>
     </label>
 
-    <div class="section-title">以下可选，可以以后补充</div>
+    <label>常见的学习困难或拖延情境
+      <textarea id="pf-problems" rows="2" placeholder="什么情况下容易卡住，通常会发生什么"></textarea>
+    </label>
+
+    <label>常见拖延行为
+      <textarea id="pf-procrast" rows="2" placeholder="例如：任务太大时先刷手机"></textarea>
+    </label>
+
+    <div class="section-title">沟通与支持偏好</div>
+
+    <label>希望如何称呼学习助手
+      <input type="text" id="pf-supervisor" placeholder="帕尼尼">
+    </label>
 
     <label>最有效的奖励方式
       <input type="text" id="pf-reward" placeholder="例如：看一集剧、买杯咖啡">
@@ -349,20 +351,20 @@
       <input type="text" id="pf-corrections" placeholder="例如：可以直接说，别绕弯子">
     </label>
 
-    <label>用三个词描述自己
-      <input type="text" id="pf-selfwords" placeholder="例如：拖延、敏感、想变好">
+    <label>希望我如何称呼你
+      <input type="text" id="pf-username" placeholder="名字或外号">
     </label>
 
     <label>不喜欢的表达方式（雷区，每行一条）
       <textarea id="pf-taboos" rows="2" placeholder="例如：不要拿我跟别人比&#10;不要在我情绪差的时候讲道理"></textarea>
     </label>
 
-    <label>其他需求
+    <label>其他学习支持需求
       <textarea id="pf-other" rows="2"></textarea>
     </label>
 
     <div class="dlg-actions">
-      <button type="button" class="ghost" id="btn-pf-onboarded">标记初始化完成</button>
+      <button type="button" class="ghost" id="btn-pf-onboarded">标记整理完成</button>
       <span class="spacer"></span>
       <button value="ok" class="primary">保存档案</button>
     </div>

@@ -12,7 +12,7 @@ import {
   db, listTasks, upsertTask, deleteTask, setTaskState, setKeyTasks, keyTaskRecords,
   findOrCreateTopic, upsertTopic, addLog, addMemory, deleteMemory,
   getProfile, saveProfile, getMeta, setMeta, TASK_STATES, PRIORITIES, AREAS,
-  ACTIVE_STATES, ADHD_STATUS, PROFILE_LABELS,
+  ACTIVE_STATES, PROFILE_LABELS,
 } from './db.js';
 import { gradeTopic, describeInterval, dueTopics } from './srs.js';
 import { searchMemory } from './memory.js';
@@ -623,24 +623,25 @@ const IMPL = {
   async get_profile({}) {
     const p = await getProfile();
     const rows = Object.entries({
-      userName: '称呼', supervisorName: '监督员称呼', supervisorImage: '偏好形象',
-      adhdStatus: `ADHD 状态（${ADHD_STATUS[p.adhdStatus] || '未记录'}）`,
-      topProblems: '最困扰的三个问题', focusAreas: '重点监督', procrastinationPatterns: '常见拖延行为',
-      rewardPreference: '有效奖励', acceptableCorrections: '可接受纠偏', selfWords: '自我描述',
-      otherNeeds: '其他需求', about: '个人背景', goals: '个人目标',
+      userName: '称呼', supervisorName: '学习助手称呼',
+      about: '学习背景与当前情况', goals: '学习目标', focusAreas: '当前学习重点',
+      learningPreferences: '学习方式与节奏', availableTime: '可用学习时间', constraints: '现实限制',
+      topProblems: '学习困难或拖延情境', procrastinationPatterns: '常见拖延行为',
+      rewardPreference: '有效奖励', acceptableCorrections: '可接受纠偏',
+      otherNeeds: '其他需求',
       toneLevel: '表达强度', allowProfanity: '粗口授权',
     }).filter(([k]) => p[k] !== '' && p[k] != null)
       .map(([k, label]) => `- ${label}：${p[k]}`);
     if ((p.taboos || []).length) rows.push(`- 雷区：${p.taboos.join('；')}`);
-    if (!rows.length) return lock('档案是空的。按 §4 开始初始化，每轮问 1-3 个问题。', 'get_profile(空)');
+    if (!rows.length) return lock('学习档案尚未填写。点击「聊聊我」可以开始逐题访谈。', 'get_profile(空)');
     return lock(rows.join('\n'), 'get_profile');
   },
 
   async update_profile(args) {
     const patch = {};
-    for (const k of ['userName', 'supervisorName', 'supervisorImage', 'adhdStatus', 'topProblems',
+    for (const k of ['userName', 'supervisorName', 'topProblems',
       'focusAreas', 'procrastinationPatterns', 'rewardPreference', 'acceptableCorrections',
-      'selfWords', 'otherNeeds', 'about', 'goals']) {
+      'otherNeeds', 'about', 'goals', 'learningPreferences', 'availableTime', 'constraints']) {
       const v = args[k];
       if (typeof v === 'string' && v.trim()) patch[k] = v.trim();
     }
@@ -1131,22 +1132,22 @@ const DEF = {
   })],
 
   /* 档案 */
-  get_profile: ['查看用户档案。调用前先调取以了解用户填写的称呼、偏好和雷区；ADHD 状态是可选隐私信息，不要追问或推测，只在用户主动填写后用于调整建议。', P({})],
-  update_profile: ['整理用户档案的待保存草稿。用户透露背景、目标、偏好、雷区、称呼时调用；工具会暂存草稿，你必须在聊天里展示并请求确认，收到确认后程序才落库。', P({
+  get_profile: ['查看学习档案。了解用户的学习背景、目标、学习方式、可用时间、现实限制和沟通偏好。', P({})],
+  update_profile: ['整理学习档案的待保存草稿。逐题访谈中先收集回答，不要每答一题就生成草稿；用户要求结束访谈或访谈信息已经充分时，再汇总相关内容调用本工具。工具会暂存草稿，你必须在聊天里展示并请求确认，收到确认后程序才落库。', P({
     userName: S('希望被如何称呼'),
-    supervisorName: S('希望如何称呼监督员'),
-    supervisorImage: S('偏好的监督员性别或形象'),
-    adhdStatus: ENUM('ADHD 状态', Object.keys(ADHD_STATUS)),
-    topProblems: S('当前最困扰的三个问题'),
-    focusAreas: S('希望重点监督的事项'),
-    procrastinationPatterns: S('最容易出现的拖延行为'),
+    supervisorName: S('用户希望如何称呼学习助手'),
+    topProblems: S('学习困难、拖延触发情境和通常发生的行为'),
+    focusAreas: S('当前学习重点'),
+    procrastinationPatterns: S('常见拖延行为'),
     rewardPreference: S('最有效的奖励方式'),
     acceptableCorrections: S('可接受的提醒或纠偏方式'),
-    selfWords: S('用三个词描述自己'),
     taboos: A('不喜欢的表达方式和交互雷区'),
     otherNeeds: S('其他需求'),
-    about: S('用户明确描述的个人背景、经历或当前情况；不确定归属时可原意记录在这里'),
-    goals: S('用户明确表达的个人目标'),
+    about: S('学习背景与当前情况'),
+    goals: S('学习目标'),
+    learningPreferences: S('适合用户的学习方式、节奏和反馈偏好'),
+    availableTime: S('通常可用于学习的时间段与时长'),
+    constraints: S('设备、环境、精力、时间等现实限制'),
     toneLevel: N('表达强度 1-5。用户明确要求调整语气时改'),
     allowProfanity: B('是否允许粗口。用户说不喜欢脏话时设 false'),
     markOnboarded: B('true 表示初始化流程已走完'),

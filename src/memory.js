@@ -10,7 +10,7 @@
 
 import {
   db, getProfile, listTasks, listTopics, recentLogs, getKeyTasks,
-  ACTIVE_STATES, TASK_STATES, PRIORITIES, AREAS, profileCompletion, ADHD_STATUS,
+  ACTIVE_STATES, TASK_STATES, PRIORITIES, AREAS, profileCompletion,
   PROFILE_LABELS as DB_PROFILE_LABELS,
 } from './db.js';
 import { dueTopics, masteryFromInterval } from './srs.js';
@@ -82,18 +82,17 @@ export function fmtProfileBlock(profile) {
 
   const rows = [
     ['称呼', profile.userName],
-    ['监督员称呼', profile.supervisorName],
-    ['偏好形象', profile.supervisorImage],
-    ['ADHD 状态', ADHD_STATUS[profile.adhdStatus] || ''],
-    ['当前最困扰的三个问题', profile.topProblems],
-    ['希望重点监督', profile.focusAreas],
-    ['最常见的拖延行为', profile.procrastinationPatterns],
+    ['学习背景与当前情况', profile.about],
+    ['学习目标', profile.goals],
+    ['当前学习重点', profile.focusAreas],
+    ['学习方式与节奏', profile.learningPreferences],
+    ['可用学习时间', profile.availableTime],
+    ['现实限制', profile.constraints],
+    ['学习困难或拖延情境', profile.topProblems],
+    ['常见拖延行为', profile.procrastinationPatterns],
     ['有效的奖励方式', profile.rewardPreference],
     ['可接受的纠偏方式', profile.acceptableCorrections],
-    ['自我描述（三个词）', profile.selfWords],
     ['其他需求', profile.otherNeeds],
-    ['个人背景', profile.about],
-    ['个人目标', profile.goals],
   ].filter(([, v]) => v && String(v).trim());
 
   const lines = rows.map(([k, v]) => `- ${k}：${v}`);
@@ -105,9 +104,9 @@ export function fmtProfileBlock(profile) {
   lines.push(`档案完成度：必填 ${c.requiredDone}/${c.requiredTotal}，可选 ${c.optionalDone}/${c.optionalTotal}。`);
   if (!c.isOnboarded) {
     lines.push(c.canStart
-      ? '**必填项已齐，但还没走完初始化流程。** 可以引导用户确认一下档案，然后继续日常监督。'
-      : `**还没完成初始化。** 还差这些必填项：${c.missingRequired.map(k => PROFILE_LABELS[k] || k).join('、')}。`
-        + '按 §四 的要求逐轮问，每轮 1-3 个问题，不要一次问完。');
+      ? '**学习档案核心信息已齐。** 用户确认后即可用于个性化学习安排。'
+      : `**学习档案还可补充。** 尚未记录：${c.missingRequired.map(k => PROFILE_LABELS[k] || k).join('、')}。`
+        + '需要了解时邀请用户点击「聊聊我」，按访谈规则逐题询问。');
   }
 
   return lines.join('\n');

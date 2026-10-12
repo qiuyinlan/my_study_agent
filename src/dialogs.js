@@ -7,7 +7,7 @@ import {
   db, listTasks, upsertTask, deleteTask, setTaskState, listTopics, upsertTopic,
   deleteTopic, getUsage, getMeta, listSessions, switchSession, createSession,
   deleteSession, getProfile, saveProfile, profileCompletion, setKeyTasks,
-  TASK_STATES, PRIORITIES, AREAS, ADHD_STATUS, DEFAULT_PROFILE,
+  TASK_STATES, PRIORITIES, AREAS, DEFAULT_PROFILE,
 } from './db.js';
 import { GRADES, gradeTopic, describeInterval, dueTopics } from './srs.js';
 import { endOfToday, fmtDateTime, daysUntil, dateStr, toLocalInput, fromLocalInput } from './util.js';
@@ -625,25 +625,22 @@ export async function openProfile({ onChanged } = {}) {
   const set = (id, v) => { $(id).value = v ?? ''; };
   set('#pf-username', p.userName);
   set('#pf-supervisor', p.supervisorName);
-  set('#pf-image', p.supervisorImage);
   set('#pf-problems', p.topProblems);
   set('#pf-about', p.about);
   set('#pf-goals', p.goals);
   set('#pf-focus', p.focusAreas);
+  set('#pf-learning-preferences', p.learningPreferences);
+  set('#pf-available-time', p.availableTime);
+  set('#pf-constraints', p.constraints);
   set('#pf-procrast', p.procrastinationPatterns);
   set('#pf-reward', p.rewardPreference);
   set('#pf-corrections', p.acceptableCorrections);
-  set('#pf-selfwords', p.selfWords);
   set('#pf-taboos', (p.taboos || []).join('\n'));
   set('#pf-other', p.otherNeeds);
 
-  const adhd = $('#pf-adhd');
-  adhd.innerHTML = '<option value="">（未记录）</option>'
-    + Object.entries(ADHD_STATUS).map(([k, v]) => `<option value="${k}" ${p.adhdStatus === k ? 'selected' : ''}>${v}</option>`).join('');
-
   $('#profile-status').innerHTML = c.isOnboarded
-    ? `<span class="hint">初始化已完成。必填 ${c.requiredDone}/${c.requiredTotal}，可选 ${c.optionalDone}/${c.optionalTotal}。</span>`
-    : `<span class="hint">必填 ${c.requiredDone}/${c.requiredTotal}。还差：${c.missingRequired.length ? c.missingRequired.join('、') : '（可点下方标记完成）'}。第 8-12 项可选，可以以后补。</span>`;
+    ? `<span class="hint">学习档案已整理。核心信息 ${c.requiredDone}/${c.requiredTotal}，补充信息 ${c.optionalDone}/${c.optionalTotal}。</span>`
+    : `<span class="hint">核心信息 ${c.requiredDone}/${c.requiredTotal}。还可补充：${c.missingRequired.map(k => ({ about: '学习背景', goals: '学习目标', focusAreas: '当前学习重点', learningPreferences: '学习方式' })[k] || k).join('、') || '可标记整理完成'}。</span>`;
 
   dlg.showModal();
   return new Promise(resolve => {
@@ -655,23 +652,23 @@ export async function openProfile({ onChanged } = {}) {
         const patch = {
           userName: $('#pf-username').value.trim(),
           supervisorName: $('#pf-supervisor').value.trim() || '帕尼尼',
-          supervisorImage: $('#pf-image').value.trim(),
-          adhdStatus: adhd.value,
           topProblems: $('#pf-problems').value.trim(),
           about: $('#pf-about').value.trim(),
           goals: $('#pf-goals').value.trim(),
           focusAreas: $('#pf-focus').value.trim(),
+          learningPreferences: $('#pf-learning-preferences').value.trim(),
+          availableTime: $('#pf-available-time').value.trim(),
+          constraints: $('#pf-constraints').value.trim(),
           procrastinationPatterns: $('#pf-procrast').value.trim(),
           rewardPreference: $('#pf-reward').value.trim(),
           acceptableCorrections: $('#pf-corrections').value.trim(),
-          selfWords: $('#pf-selfwords').value.trim(),
           taboos: $('#pf-taboos').value.split('\n').map(x => x.trim()).filter(Boolean),
           otherNeeds: $('#pf-other').value.trim(),
         };
         const saved = await saveProfile(patch);
         const after = profileCompletion(saved);
         if (after.canStart && !saved.onboardedAt) {
-          if (confirm('必填项已经齐了。标记为「初始化完成」吗？')) {
+          if (confirm('学习档案核心信息已经齐了。标记为「整理完成」吗？')) {
             await saveProfile({ onboardedAt: new Date().toISOString() });
           }
         }
@@ -687,7 +684,7 @@ export async function openProfile({ onChanged } = {}) {
 
     $('#btn-pf-onboarded').onclick = async () => {
       await saveProfile({ onboardedAt: new Date().toISOString() });
-      toast('已标记初始化完成', 'ok');
+      toast('已标记学习档案整理完成', 'ok');
       dlg.close('cancel');
       await onChanged?.();
     };

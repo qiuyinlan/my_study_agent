@@ -9,7 +9,7 @@
 
 import {
   db, listTasks, listTopics, getProfile, getKeyTasks, profileCompletion,
-  ADHD_STATUS, TASK_STATES, PRIORITIES, AREAS,
+  TASK_STATES, PRIORITIES, AREAS,
 } from './db.js';
 import { listTimeEntries, estimationStats } from './timer.js';
 import { getLedger, listRewards } from './ledger.js';
@@ -64,15 +64,16 @@ export async function buildMarkdownExport({ includeAll = false } = {}) {
   L.push('| 项目 | 内容 |', '| --- | --- |');
   const pf = [
     ['称呼', profile.userName],
-    ['监督员称呼', profile.supervisorName],
-    ['偏好形象', profile.supervisorImage],
-    ['ADHD 状态', ADHD_STATUS[profile.adhdStatus] || ''],
-    ['当前最困扰的三个问题', profile.topProblems],
-    ['希望重点监督', profile.focusAreas],
-    ['最常见的拖延行为', profile.procrastinationPatterns],
+    ['学习背景与当前情况', profile.about],
+    ['学习目标', profile.goals],
+    ['当前学习重点', profile.focusAreas],
+    ['学习方式与节奏', profile.learningPreferences],
+    ['可用学习时间', profile.availableTime],
+    ['现实限制', profile.constraints],
+    ['学习困难或拖延情境', profile.topProblems],
+    ['常见拖延行为', profile.procrastinationPatterns],
     ['有效的奖励方式', profile.rewardPreference],
     ['可接受的提醒/纠偏方式', profile.acceptableCorrections],
-    ['用三个词描述自己', profile.selfWords],
     ['不喜欢的表达方式（雷区）', (profile.taboos || []).join('；')],
     ['其他需求', profile.otherNeeds],
     ['表达强度设定', `${profile.toneLevel ?? 5}/5`],
