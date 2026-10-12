@@ -92,6 +92,22 @@ function saveMicroHabitState(state) {
   }
 }
 
+function localDate(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export function pruneMicroHabitHistory({ now = Date.now(), retentionDays = 60 } = {}) {
+  const state = loadMicroHabitState();
+  const cutoff = localDate(new Date(now - retentionDays * 86400000));
+  const before = Object.keys(state.completions).length;
+  const completions = Object.fromEntries(Object.entries(state.completions)
+    .filter(([date]) => !/^\d{4}-\d{2}-\d{2}$/.test(date) || date >= cutoff));
+  const removed = before - Object.keys(completions).length;
+  if (removed) saveMicroHabitState({ ...state, completions });
+  return removed;
+}
+
 export function getTodayHabitSnapshot() {
   const state = loadMicroHabitState();
   const active = state.habits.filter(h => h.active !== false).sort((a, b) => a.order - b.order);

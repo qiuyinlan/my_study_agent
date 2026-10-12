@@ -1,5 +1,6 @@
 import { esc, icon, toast } from './ui.js';
 import { dateStr } from './util.js';
+import { pruneMicroHabitHistory } from './microhabit.js';
 
 const LOCAL_PREFIX = 'msa.daily-review.v1:';
 const QUEUE_KEY = 'msa.daily-review-sync.v1';
@@ -139,6 +140,7 @@ async function syncMicroHabitState() {
         await saveMicroHabitStateToCloud(local);
       }
     }
+    pruneMicroHabitHistory();
   })().catch(error => {
     microHabitSyncError = error.message || String(error);
     console.warn('[micro-habit-sync]', error);

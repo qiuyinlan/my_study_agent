@@ -189,11 +189,38 @@ export async function getProfile() {
   return (await db.profile.get('me')) || { ...DEFAULT_PROFILE };
 }
 
+export function notifyPrivateDataChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('msa:private-data-changed'));
+}
+
+export async function markPrivateRecordDeleted(type, id) {
+  const key = `${type}:${id}`;
+  const deletes = await getMeta('privateSyncDeletes', {});
+  deletes[key] = nowISO();
+  await setMeta('privateSyncDeletes', deletes);
+}
+
+async function clearPrivateRecordDeletion(type, id) {
+  const key = `${type}:${id}`;
+  const deletes = await getMeta('privateSyncDeletes', {});
+  if (!(key in deletes)) return;
+  delete deletes[key];
+  await setMeta('privateSyncDeletes', deletes);
+}
+
 export async function saveProfile(patch) {
   const cur = await getProfile();
   const next = { ...cur, ...patch, id: 'me', updatedAt: nowISO() };
   await db.profile.put(next);
+  await clearPrivateRecordDeletion('profile', 'me');
+  notifyPrivateDataChanged();
   return next;
+}
+
+export async function deleteProfile() {
+  await markPrivateRecordDeleted('profile', 'me');
+  await db.profile.delete('me');
+  notifyPrivateDataChanged();
 }
 
 /* ══════════════ 任务（§5.2 数据结构）══════════════ */
@@ -319,6 +346,23 @@ export async function deleteTask(id) {
   await setMeta('deletedTasks', deleted);
   await db.tasks.delete(id);
   notifyTaskChanged();
+}
+
+export async function cleanupOldCompletedTasks({ now = Date.now(), retentionDays = 60 } = {}) {
+  const cutoff = now - retentionDays * 86400000;
+  const tasks = await db.tasks.toArray();
+  const old = tasks.filter(task => ['DONE', 'CANCELLED'].includes(task.state)
+    && Date.parse(task.actualEnd || task.updatedAt || task.createdAt || '') < cutoff);
+  if (!old.length) return 0;
+  const deleted = await getMeta('deletedTasks', {});
+  const deletedAt = nowISO();
+  for (const task of old) {
+    deleted[task.id] = deletedAt;
+    await db.tasks.delete(task.id);
+  }
+  await setMeta('deletedTasks', deleted);
+  notifyTaskChanged();
+  return old.length;
 }
 
 /** 今日关键任务（§5.3：每天原则上只指定 1-3 个）。存在 meta 里，跨天自动失效。 */
@@ -464,6 +508,8 @@ export async function createSession(title = '') {
   };
   await db.sessions.put(session);
   await db.meta.put({ key: 'currentSession', value: session.id });
+  await clearPrivateRecordDeletion('session', session.id);
+  notifyPrivateDataChanged();
   return session;
 }
 
@@ -483,6 +529,8 @@ export async function addMessage(msg) {
   };
   await db.messages.put(m);
   await db.sessions.update(m.sessionId, { updatedAt: m.createdAt });
+  await clearPrivateRecordDeletion('message', m.id);
+  notifyPrivateDataChanged();
   return m;
 }
 
@@ -511,11 +559,47 @@ export async function switchSession(id) {
 
 export async function renameSession(id, title) {
   await db.sessions.update(id, { title: String(title || '').slice(0, 60) });
+  notifyPrivateDataChanged();
+}
+
+export async function clearSessionMessages(id) {
+  const messages = await db.messages.where('sessionId').equals(id).toArray();
+  const deletes = await getMeta('privateSyncDeletes', {});
+  const deletedAt = nowISO();
+  for (const message of messages) deletes[`message:${message.id}`] = deletedAt;
+  await setMeta('privateSyncDeletes', deletes);
+  await db.messages.where('sessionId').equals(id).delete();
+  await db.sessions.update(id, { summary: '', summarizedUpTo: 0, updatedAt: deletedAt });
+  notifyPrivateDataChanged();
+  return messages.length;
+}
+
+export async function deleteAllConversations() {
+  const sessions = await db.sessions.toArray();
+  const messages = await db.messages.toArray();
+  const deletes = await getMeta('privateSyncDeletes', {});
+  const deletedAt = nowISO();
+  for (const item of sessions) deletes[`session:${item.id}`] = deletedAt;
+  for (const item of messages) deletes[`message:${item.id}`] = deletedAt;
+  await setMeta('privateSyncDeletes', deletes);
+  await db.messages.clear();
+  await db.sessions.clear();
+  await db.meta.delete('currentSession');
+  await createSession();
+  notifyPrivateDataChanged();
+  return sessions.length;
 }
 
 export async function deleteSession(id) {
+  const messages = await db.messages.where('sessionId').equals(id).toArray();
+  const deletes = await getMeta('privateSyncDeletes', {});
+  const deletedAt = nowISO();
+  deletes[`session:${id}`] = deletedAt;
+  for (const item of messages) deletes[`message:${item.id}`] = deletedAt;
+  await setMeta('privateSyncDeletes', deletes);
   await db.messages.where('sessionId').equals(id).delete();
   await db.sessions.delete(id);
+  notifyPrivateDataChanged();
   const current = await getMeta('currentSession', null);
   if (current === id) {
     await db.meta.delete('currentSession');

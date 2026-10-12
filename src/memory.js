@@ -11,7 +11,7 @@
 import {
   db, getProfile, listTasks, listTopics, recentLogs, getKeyTasks,
   ACTIVE_STATES, TASK_STATES, PRIORITIES, AREAS, profileCompletion,
-  PROFILE_LABELS as DB_PROFILE_LABELS,
+  PROFILE_LABELS as DB_PROFILE_LABELS, notifyPrivateDataChanged,
 } from './db.js';
 import { dueTopics, masteryFromInterval } from './srs.js';
 import { getActiveTimer } from './timer.js';
@@ -635,6 +635,7 @@ export async function compactSession(sessionId, { force = false, signal } = {}) 
     summarizedUpTo: (session.summarizedUpTo || 0) + batch.length,
     updatedAt: nowISO(),
   });
+  notifyPrivateDataChanged();
 
   return { compacted: true, count: batch.length, memories: saved, summary };
 }

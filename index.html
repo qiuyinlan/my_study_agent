@@ -112,8 +112,7 @@
     </label>
 
     <div class="section-title">数据同步</div>
-    <p class="hint">登录同一个 Supabase 账号后，每日复盘和微习惯会在设备间同步。首次启用微习惯同步前，请执行 supabase/micro-habits.sql。</p>
-    <p class="hint">任务也会在登录设备间同步。首次启用前，请执行 supabase/tasks.sql。</p>
+    <p class="hint">登录同一个 Supabase 账号后，任务、每日复盘、微习惯、对话和学习档案会在设备间同步。首次启用前请执行 supabase/tasks.sql、supabase/micro-habits.sql 和 supabase/private-sync.sql。</p>
     <div class="grid2">
       <label>邮箱<input type="email" id="review-sync-email" autocomplete="username"></label>
       <label>密码<input type="password" id="review-sync-password" autocomplete="current-password"></label>
@@ -124,6 +123,16 @@
       <button type="button" class="ghost" id="review-sync-logout">退出账号</button>
     </div>
     <div class="hint" id="review-sync-status" aria-live="polite"></div>
+    <div class="hint" id="private-sync-status" aria-live="polite"></div>
+
+    <div class="section-title">存储与清理</div>
+    <p class="hint">已完成或取消超过 60 天的任务，以及超过 60 天的微习惯完成历史，会自动清理；未完成任务和微习惯本身会保留。对话和学习档案只会在你手动删除时清理。</p>
+    <div class="hint" id="storage-usage" aria-live="polite">正在读取存储用量…</div>
+    <div class="dlg-actions">
+      <button type="button" class="ghost" id="btn-refresh-storage">刷新用量</button>
+      <button type="button" class="ghost" id="btn-delete-all-conversations">删除全部对话</button>
+      <button type="button" class="ghost" id="btn-delete-profile">删除学习档案</button>
+    </div>
 
     <div class="section-title">表达强度</div>
     <label>强度档位
@@ -175,7 +184,7 @@
 <dialog id="dlg-backup">
   <form method="dialog" class="dlg">
     <h3>数据备份</h3>
-    <p class="hint">所有记录都存在浏览器的 IndexedDB 里。清缓存、换浏览器、换电脑都会丢，请定期导出。</p>
+    <p class="hint">数据保存在当前浏览器；登录云同步后，任务、复盘、微习惯、对话和学习档案也会保存在你的 Supabase 账号中。清理浏览器数据或账号数据前请先确认需要保留的备份。</p>
 
     <div class="mirror-box">
       <div>

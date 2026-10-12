@@ -18,6 +18,7 @@ import { computeToday, todayCards } from './planner.js';
 import { runTurn } from './agent.js';
 import {
   ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession, setTaskCompletion, addMessage,
+  cleanupOldCompletedTasks,
 } from './db.js';
 import { loadSettings } from './config.js';
 import {
@@ -31,6 +32,8 @@ import { confirmAllPoints, redeemReward, getLedger, awardPoints } from './ledger
 import { upsertCheckin, setMedsEnabled } from './records.js';
 import { initDailyReviewSync } from './dailyReview.js';
 import { initTaskSync } from './taskSync.js';
+import { initPrivateSync } from './privateSync.js';
+import { pruneMicroHabitHistory } from './microhabit.js';
 import { downloadMarkdownExport, buildMarkdownExport, markdownStats } from './exportmd.js';
 import { detectIntent, ALL_COMMANDS } from './commands.js';
 import { executeTool } from './tools.js';
@@ -744,6 +747,8 @@ function wireTopbar() {
 
 async function boot() {
   loadUiState();
+  await cleanupOldCompletedTasks();
+  pruneMicroHabitHistory();
   showPanel(uiState.currentPanel || 'tasks');
   workspaceMode = uiState.workspaceMode === 'chat' ? 'chat' : 'content';
   applyUiState();
@@ -760,6 +765,10 @@ async function boot() {
   setupResizer('#resize-nav', 'nav');
   setupResizer('#resize-panel', 'panel');
 
+  profile = await getProfile();
+  $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
+
+  await initPrivateSync(() => { void refreshAll(); });
   profile = await getProfile();
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
 

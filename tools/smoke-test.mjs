@@ -1030,6 +1030,26 @@ eq('复盘已恢复', (await db.reviews.toArray()).length, beforeCounts.reviews)
 const pretty = dbm.prettyExport(dump);
 check('美化导出是合法 JSON', (() => { try { JSON.parse(pretty); return true; } catch { return false; } })());
 
+console.log('\n[15.5] 60 天历史清理');
+const retentionNow = Date.UTC(2026, 0, 1);
+await db.tasks.bulkPut([
+  { id: 'task_old_done', title: '旧完成任务', state: 'DONE', actualEnd: '2025-10-01T00:00:00.000Z', updatedAt: '2025-10-01T00:00:00.000Z', createdAt: '2025-09-01T00:00:00.000Z' },
+  { id: 'task_old_active', title: '长期任务', state: 'DOING', actualEnd: '', updatedAt: '2025-10-01T00:00:00.000Z', createdAt: '2025-09-01T00:00:00.000Z' },
+  { id: 'task_recent_done', title: '最近完成任务', state: 'DONE', actualEnd: '2025-12-20T00:00:00.000Z', updatedAt: '2025-12-20T00:00:00.000Z', createdAt: '2025-12-01T00:00:00.000Z' },
+]);
+eq('只清理 60 天前已完成或取消的任务', await dbm.cleanupOldCompletedTasks({ now: retentionNow }), 1);
+check('旧完成任务已清理', !(await db.tasks.get('task_old_done')));
+check('未完成任务不会自动删除', Boolean(await db.tasks.get('task_old_active')));
+check('60 天内完成的任务会保留', Boolean(await db.tasks.get('task_recent_done')));
+const microhabit = await import('../src/microhabit.js');
+localStorage.setItem('micro-habit-local-state-v1', JSON.stringify({
+  habits: [{ id: 'habit_keep', title: '每天读书', active: true, order: 0 }],
+  completions: { '2025-12-31': ['habit_keep'], '2026-01-01': ['habit_keep'], '2026-02-28': ['habit_keep'] },
+}));
+eq('微习惯只清理 60 天前的完成历史', microhabit.pruneMicroHabitHistory({ now: Date.UTC(2026, 2, 2, 12) }), 1);
+check('微习惯定义和近期完成历史保留', microhabit.loadMicroHabitState().habits.length === 1
+  && '2026-02-28' in microhabit.loadMicroHabitState().completions);
+
 /* ══════════════ 16. Markdown 安全 ══════════════ */
 console.log('\n[16] Markdown 安全（模型输出不能变成可执行 HTML）');
 

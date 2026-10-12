@@ -675,6 +675,10 @@ check('备份和导出入口位于设置内',
   $('#dlg-settings')?.contains($('#btn-settings-export'))
     && $('#dlg-settings')?.contains($('#btn-settings-backup'))
     && $('#btn-export') === null && $('#btn-backup') === null);
+check('设置显示同步与浏览器存储用量', $('#storage-usage') !== null && $('#btn-refresh-storage') !== null);
+check('设置提供对话和档案的手动删除键',
+  $('#btn-delete-all-conversations') !== null && $('#btn-delete-profile') !== null);
+check('设置说明任务和微习惯按 60 天保留策略清理', $('#dlg-settings')?.textContent.includes('超过 60 天'));
 check('有「开始诊断」按钮', $('#btn-diag') !== null);
 check('有「复制报告」按钮', $('#btn-diag-copy') !== null);
 check('复制按钮初始为禁用', $('#btn-diag-copy')?.disabled === true);

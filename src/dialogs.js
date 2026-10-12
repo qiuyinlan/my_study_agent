@@ -6,7 +6,8 @@ import { testConnection } from './deepseek.js';
 import {
   db, listTasks, upsertTask, deleteTask, setTaskState, listTopics, upsertTopic,
   deleteTopic, getUsage, getMeta, listSessions, switchSession, createSession,
-  deleteSession, getProfile, saveProfile, profileCompletion, setKeyTasks,
+  deleteSession, clearSessionMessages, deleteAllConversations, deleteProfile,
+  getProfile, saveProfile, profileCompletion, setKeyTasks,
   TASK_STATES, PRIORITIES, AREAS, DEFAULT_PROFILE,
 } from './db.js';
 import { GRADES, gradeTopic, describeInterval, dueTopics } from './srs.js';
@@ -24,6 +25,7 @@ import { runDiagnostics } from './diagnose.js';
 import {
   getDailyReviewSyncStatus, signInDailyReview, signUpDailyReview, signOutDailyReview,
 } from './dailyReview.js';
+import { getPrivateSyncStatus, getStorageUsage, refreshPrivateSyncSession } from './privateSync.js';
 
 const OFFICIAL_BASE = 'https://api.deepseek.com';
 
@@ -81,7 +83,39 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
     const node = $('#review-sync-status');
     if (node) node.textContent = status.connected ? `已登录：${status.email} · ${status.message}` : status.message;
   };
+  const updatePrivateSyncStatus = event => {
+    const status = event?.detail || getPrivateSyncStatus();
+    const node = $('#private-sync-status');
+    if (node) node.textContent = status.connected ? `对话与档案：已登录 ${status.email} · ${status.message}` : status.message;
+  };
+  const formatBytes = value => {
+    if (!Number.isFinite(value)) return '不可用';
+    if (value < 1024) return `${value} B`;
+    if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+    return `${(value / 1024 / 1024).toFixed(2)} MiB`;
+  };
+  const updateStorageUsage = async () => {
+    const node = $('#storage-usage');
+    if (!node) return;
+    node.style.whiteSpace = 'pre-line';
+    node.textContent = '正在读取存储用量…';
+    try {
+      const usage = await getStorageUsage();
+      const browserText = usage.browserUsed == null
+        ? '浏览器存储用量：当前浏览器不提供统计'
+        : `当前网站浏览器存储：${formatBytes(usage.browserUsed)} / ${formatBytes(usage.browserQuota)} 配额`;
+      const syncText = usage.syncedBytes == null
+        ? usage.syncError ? `Supabase 同步存储：读取失败（${usage.syncError}）` : 'Supabase 同步存储：登录后可查看'
+        : `Supabase 同步内容估算：${formatBytes(usage.syncedBytes)} · ${usage.syncedRows} 条记录`;
+      node.textContent = `${syncText}\n${browserText}`;
+    } catch (error) {
+      node.textContent = `存储用量读取失败：${error.message || String(error)}`;
+    }
+  };
   updateReviewSyncStatus();
+  updatePrivateSyncStatus();
+  await updateStorageUsage();
+  window.addEventListener('msa:private-sync-status', updatePrivateSyncStatus);
 
   dlg.showModal();
   return new Promise(resolve => {
@@ -98,6 +132,10 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
       $('#review-sync-login').onclick = null;
       $('#review-sync-signup').onclick = null;
       $('#review-sync-logout').onclick = null;
+      $('#btn-refresh-storage').onclick = null;
+      $('#btn-delete-all-conversations').onclick = null;
+      $('#btn-delete-profile').onclick = null;
+      window.removeEventListener('msa:private-sync-status', updatePrivateSyncStatus);
       if (dlg.returnValue === 'ok') {
         await collectAndSave();
         toast('设置已保存', 'ok');
@@ -122,7 +160,10 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
           : action === 'signup'
             ? await signUpDailyReview(email, password)
             : await signOutDailyReview();
+        await refreshPrivateSyncSession();
         updateReviewSyncStatus();
+        updatePrivateSyncStatus();
+        await updateStorageUsage();
         if (result?.needsConfirmation) node.textContent = '注册已提交，请按 Supabase 邮件提示完成验证。';
       } catch (error) {
         node.textContent = `连接失败：${error.message}`;
@@ -131,6 +172,21 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
     $('#review-sync-login').onclick = () => runReviewAuth('login');
     $('#review-sync-signup').onclick = () => runReviewAuth('signup');
     $('#review-sync-logout').onclick = () => runReviewAuth('logout');
+    $('#btn-refresh-storage').onclick = () => { void updateStorageUsage(); };
+    $('#btn-delete-all-conversations').onclick = async () => {
+      if (!confirm('删除本机保存的全部对话；登录云同步后也会删除云端副本。学习档案、任务和复盘不会删除。')) return;
+      const count = await deleteAllConversations();
+      toast(`已删除全部对话（${count} 个会话）`, 'ok');
+      await onChange?.();
+      await updateStorageUsage();
+    };
+    $('#btn-delete-profile').onclick = async () => {
+      if (!confirm('删除本机学习档案；登录云同步后也会删除云端副本。任务、复盘和对话不会删除。')) return;
+      await deleteProfile();
+      toast('学习档案已删除', 'ok');
+      await onChange?.();
+      dlg.close('cancel');
+    };
 
     $('#btn-test').onclick = async () => {
       const el = $('#set-status');
@@ -217,8 +273,7 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
     $('#btn-clear-chat').onclick = async () => {
       const sess = await getMeta('currentSession', null);
       if (sess) {
-        await db.messages.where('sessionId').equals(sess).delete();
-        await db.sessions.update(sess, { summary: '', summarizedUpTo: 0 });
+        await clearSessionMessages(sess);
       }
       toast('当前对话已清空', 'ok');
       await onChange?.();
