@@ -375,6 +375,9 @@ await wait(60);
 check('顶栏可折叠且状态持久化', document.body.classList.contains('topbar-collapsed')
   && JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').topbarCollapsed === true);
 check('顶栏折叠后按钮标签更新', $('#btn-collapse-topbar')?.getAttribute('aria-label') === '展开顶栏');
+check('顶栏折叠按钮位于品牌图标之前',
+  $('#btn-collapse-topbar')?.parentElement === $('.brand')
+    && $('#btn-collapse-topbar')?.nextElementSibling?.classList.contains('mark'));
 click('#btn-collapse-topbar');
 await wait(60);
 check('顶栏可以重新展开', !document.body.classList.contains('topbar-collapsed'));
@@ -520,6 +523,10 @@ check('任务页显示待完成主要任务数量', $('#view-tasks [data-pending
 check('任务页显示待完成杂事数量', $('#view-tasks [data-pending-chore]') !== null);
 check('切换面板期间没有报错', errors.length === 0, errors[0]);
 check('任务页底部包含每日微习惯任务', $('#view-tasks [data-task-microhabits]') !== null);
+check('微习惯区只显示简洁标题，不显示说明文案',
+  $('#view-tasks [data-task-microhabits] .habit-hero h3')?.textContent === '微习惯'
+    && !$('#view-tasks [data-task-microhabits] .habit-hero')?.textContent.includes('MICRO HABITS')
+    && !$('#view-tasks [data-task-microhabits] .habit-hero')?.textContent.includes('小步完成'));
 await openPanel('life');
 const lifeEntries = $$('.life-entry-card');
 check('生活导航显示四个入口和 SVG 图标', lifeEntries.length === 4 && lifeEntries.every(card => card.querySelector('.life-entry-icon svg')));
@@ -655,6 +662,9 @@ console.log('\n[11] 设置里的诊断');
 click('#btn-settings');
 await wait(250);
 check('设置弹窗打开了', $('#dlg-settings')?.open === true);
+check('清空对话和关闭按钮位置已互换',
+  $('#btn-clear-chat')?.compareDocumentPosition($('#btn-settings-close'))
+    & window.Node.DOCUMENT_POSITION_FOLLOWING);
 check('备份和导出入口位于设置内',
   $('#dlg-settings')?.contains($('#btn-settings-export'))
     && $('#dlg-settings')?.contains($('#btn-settings-backup'))

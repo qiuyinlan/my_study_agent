@@ -216,7 +216,7 @@ export function renderMicroHabit(el, { onChanged } = {}) {
   const done = active.filter(h => doneIds.has(h.id)).length;
   const percent = active.length ? Math.round(done / active.length * 100) : 0;
   el.innerHTML = `<div class="habit-workspace">
-    <section class="habit-hero workspace-card"><div><span class="habit-kicker">MICRO HABITS</span><h3>小步完成，保持节奏</h3><p>这里只管理习惯本身；今天的复盘和状态都在「今日」。</p></div><div class="habit-progress-ring" style="--progress:${percent * 3.6}deg"><span>${percent}%</span><small>今日完成</small></div></section>
+    <section class="habit-hero workspace-card"><div><h3>微习惯</h3></div><div class="habit-progress-ring" style="--progress:${percent * 3.6}deg"><span>${percent}%</span><small>今日完成</small></div></section>
     <section class="workspace-card"><div class="workspace-card-head"><div><h3>今日习惯</h3><p class="card-sub">${done}/${active.length || 0} 个已完成</p></div></div>
       ${active.length ? `<div class="habit-list">${active.map(h => `<article class="habit-item" data-habit-row="${esc(h.id)}">
         <div class="habit-row ${doneIds.has(h.id) ? 'done' : ''}">
