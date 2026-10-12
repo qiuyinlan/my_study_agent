@@ -279,7 +279,7 @@ script = [textStream('启动占位')];
 localStorage.setItem('msa.ui.v1', JSON.stringify({ currentPanel: 'tasks', workspaceMode: 'chat' }));
 await import('../src/main.js');
 check('深度模式入口已移除', $('#btn-depth') === null && $('#set-reason-model') === null);
-check('AI 对话有「关于我」入口', $('#btn-about-me')?.textContent === '关于我');
+check('AI 对话有「聊聊我」入口', $('#btn-about-me')?.textContent === '聊聊我');
 await waitFor(() => $('#view-tasks')?.classList.contains('active') && $('.app')?.classList.contains('chat-mode'), { label: 'restore workspace' });
 check('Saved panel restored on boot', $('#view-tasks').classList.contains('active'));
 check('Saved chat mode restored on boot', $('.app').classList.contains('chat-mode'));
@@ -355,9 +355,12 @@ check('点击左栏首项进入独立 AI 对话页', $('.app')?.classList.contai
 check('AI 对话页的左栏入口保持高亮', $('.nav-btn[data-panel="chat"]')?.classList.contains('active'));
 check('顶栏不再显示返回内容和显示内容文字按钮',
   $('#btn-return-content') === null && !$$('.workspace-switch').length);
-check('关于我入口位于新对话旁边的聊天工具区',
-  $('#btn-about-me')?.parentElement === $('#btn-new-chat')?.parentElement
-    && $('#btn-sessions')?.parentElement === $('#btn-new-chat')?.parentElement);
+check('聊聊我和历史记录位于对话操作区',
+  $('#btn-about-me')?.parentElement === $('.chat-actions')
+    && $('#btn-sessions')?.parentElement === $('.chat-actions'));
+check('新对话、历史记录和设置使用图标按钮',
+  ['#btn-new-chat', '#btn-sessions', '#btn-settings']
+    .every(sel => $(sel)?.querySelector('svg') && !$(sel).textContent.trim()));
 check('设置按钮与聊天操作分组独立',
   $('#btn-settings')?.parentElement !== $('#btn-new-chat')?.parentElement
     && $('.chat-actions')?.contains($('#btn-settings')) === false);
@@ -370,6 +373,8 @@ check('三个折叠控件都有图标',
   ['#btn-collapse-nav', '#btn-collapse-panel', '#btn-reveal-panel']
     .every(sel => $(sel)?.querySelector('svg')));
 check('顶栏折叠按钮也有图标', $('#btn-collapse-topbar')?.querySelector('svg') !== null);
+check('顶栏折叠按钮是两条横线菜单图标',
+  $('#btn-collapse-topbar svg path')?.getAttribute('d') === 'M4 8h16M4 16h16');
 click('#btn-collapse-topbar');
 await wait(60);
 check('顶栏可折叠且状态持久化', document.body.classList.contains('topbar-collapsed')
@@ -377,7 +382,7 @@ check('顶栏可折叠且状态持久化', document.body.classList.contains('top
 check('顶栏折叠后按钮标签更新', $('#btn-collapse-topbar')?.getAttribute('aria-label') === '展开顶栏');
 check('顶栏折叠按钮位于品牌图标之前',
   $('#btn-collapse-topbar')?.parentElement === $('.brand')
-    && $('#btn-collapse-topbar')?.nextElementSibling?.classList.contains('mark'));
+    && $('#btn-collapse-topbar')?.nextElementSibling?.id === 'btn-new-chat');
 click('#btn-collapse-topbar');
 await wait(60);
 check('顶栏可以重新展开', !document.body.classList.contains('topbar-collapsed'));

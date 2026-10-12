@@ -115,7 +115,10 @@ textarea { resize: vertical; }
   height: 52px; padding: 0 14px 0 16px; flex: 0 0 auto;
   background: var(--bg); border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+.brand .icon-btn, .chat-actions .icon-btn, .actions .icon-btn { width: 32px; height: 32px; padding: 0; color: var(--fg-2); }
+.brand .icon-btn svg, .chat-actions .icon-btn svg, .actions .icon-btn svg { width: 18px; height: 18px; }
+.brand #btn-new-chat { margin-right: 3px; }
 .brand .mark {
   width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto;
   background: var(--accent);
@@ -860,7 +863,7 @@ dialog::backdrop { background: rgba(16,24,40,.32); }
 
 #btn-collapse-topbar { display: inline-flex; }
 body.topbar-collapsed .topbar { height: 40px; min-height: 40px; flex-wrap: nowrap; padding: 4px 10px; }
-body.topbar-collapsed .topbar .brand { gap: 0; }
+body.topbar-collapsed .topbar .brand { gap: 4px; }
 body.topbar-collapsed .topbar .brand .mark,
 body.topbar-collapsed .topbar .brand #brand-name,
 body.topbar-collapsed .topbar .stats,
@@ -1273,6 +1276,7 @@ body {
   .topbar .chat-actions::-webkit-scrollbar { display: none; }
   .topbar .chat-actions button { min-height: 38px; padding: 6px 10px; font-size: 12px; }
   .topbar .actions button { padding: 6px 8px; font-size: 12px; }
+  .topbar .actions .icon-btn { padding: 0; }
   .nav { width: 74px; flex-basis: 74px; }
   .nav-label { font-size: 10px; }
   .nav-btn { min-height: 54px; padding: 7px 3px; }

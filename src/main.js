@@ -81,7 +81,7 @@ function setAboutInterviewActive(active) {
 function updateAboutButton() {
   const btn = $('#btn-about-me');
   if (!btn) return;
-  btn.textContent = aboutInterview.active ? '继续关于我' : '关于我';
+  btn.textContent = '聊聊我';
   btn.title = aboutInterview.active ? '继续关于我的逐题访谈' : '开始关于我的逐题访谈';
   btn.setAttribute('aria-pressed', String(aboutInterview.active));
 }

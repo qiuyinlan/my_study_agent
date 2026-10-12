@@ -140,6 +140,10 @@ const ICON_PATHS = {
   boredom: '<path d="M5 4.5h14v15H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3"/><path d="M8 2.5v4M16 2.5v4"/>',
   tasks:   '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8.5 12.2l2.4 2.4 4.6-5"/>',
   checkin: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.2M12 19.8V22M2 12h2.2M19.8 12H22M5 5l1.6 1.6M17.4 17.4L19 19M19 5l-1.6 1.6M6.6 17.4L5 19"/>',
+  menu:     '<path d="M4 8h16M4 16h16"/>',
+  compose:  '<path d="M13.5 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-7.5"/><path d="M18.4 2.8a2.1 2.1 0 013 3L12 15.2l-4 1 1-4z"/>',
+  history:  '<path d="M3 12a9 9 0 109-9 9.2 9.2 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  settings: '<path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 00-1.9.2l-.1.1h-3.6l-.1-.2a1.7 1.7 0 00-1.6-1l-.2.1-3.1-1.8.1-.2a1.7 1.7 0 00-.2-1.9l-.1-.1v-3.6l.2-.1a1.7 1.7 0 001-1.6l-.1-.2 1.8-3.1.2.1a1.7 1.7 0 001.9-.2l.1-.1h3.6l.1.2a1.7 1.7 0 001.6 1l.2-.1 3.1 1.8-.1.2a1.7 1.7 0 00.2 1.9l.1.1V15z"/>',
   points:  '<circle cx="12" cy="9" r="5.6"/><path d="M9 13.8L7.4 21.5l4.6-2.6 4.6 2.6L15 13.8"/>',
   plans:   '<path d="M9 3.6L3.5 5.6v14.8L9 18.4l6 2 5.5-2V3.6l-5.5 2-6-2z"/><path d="M9 3.6v14.8M15 5.6v14.8"/>',
   sops:    '<path d="M5 4.8A2.3 2.3 0 017.3 2.5H19v19H7.3A2.3 2.3 0 015 19.2z"/><path d="M9 7.5h6.5M9 11.5h4.5"/>',
@@ -182,7 +186,10 @@ export function initChromeIcons({ navCollapsed = false, panelCollapsed = false, 
     panelCollapsed ? '展开面板' : '收起面板');
   set('#btn-reveal-panel', 'chevron-right', '展开面板');
   set('#btn-refresh-panel', 'refresh', '立即刷新');
-  set('#btn-collapse-topbar', 'chevron-left', topbarCollapsed ? '展开顶栏' : '收起顶栏');
+  set('#btn-collapse-topbar', 'menu', topbarCollapsed ? '展开顶栏' : '收起顶栏');
+  set('#btn-new-chat', 'compose', '新对话');
+  set('#btn-sessions', 'history', '历史记录');
+  set('#btn-settings', 'settings', '设置');
 }
 
 /* ══════════ 左侧导航 ══════════ */
