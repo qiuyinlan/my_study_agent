@@ -399,10 +399,27 @@ await wait(60);
 check('菜单可以打开导航抽屉', !document.body.classList.contains('nav-collapsed'));
 click('.nav-btn[data-panel="tasks"]');
 await wait(60);
-check('选择导航后抽屉自动关闭并打开任务页', document.body.classList.contains('nav-collapsed')
+check('桌面选择导航后保持侧栏展开并打开任务页', !document.body.classList.contains('nav-collapsed')
   && $('#view-tasks')?.classList.contains('active'));
-check('关闭状态写入 localStorage', JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navCollapsed === true);
-check('导航是抽屉层而不是页面列', $('#nav')?.parentElement === $('.body'));
+check('导航位于主内容同一布局列', $('#nav')?.parentElement === $('.body'));
+
+Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+window.dispatchEvent(new window.Event('resize'));
+check('手机关于我入口缩短为“我”', $('#btn-about-me')?.textContent === '我');
+check('手机展开状态下遮罩可访问', $('#nav-backdrop')?.getAttribute('aria-hidden') === 'false');
+click('#nav-backdrop');
+await wait(60);
+check('点击手机右侧页面遮罩会收起侧栏', document.body.classList.contains('nav-collapsed'));
+click('#btn-collapse-topbar');
+await wait(60);
+click('.nav-btn[data-panel="tasks"]');
+await wait(60);
+check('手机选择导航后关闭侧栏并打开任务页', document.body.classList.contains('nav-collapsed')
+  && $('#view-tasks')?.classList.contains('active'));
+check('手机收起状态写入 localStorage', JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navCollapsed === true);
+Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+window.dispatchEvent(new window.Event('resize'));
+check('桌面关于我的文案仍为“聊聊我”', $('#btn-about-me')?.textContent === '聊聊我');
 
 click('#btn-collapse-panel');
 await wait(60);

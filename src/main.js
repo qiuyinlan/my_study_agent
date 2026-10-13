@@ -85,9 +85,16 @@ function setAboutInterviewActive(active) {
 function updateAboutButton() {
   const btn = $('#btn-about-me');
   if (!btn) return;
-  btn.textContent = '聊聊我';
+  btn.textContent = window.innerWidth <= 840 ? '我' : '聊聊我';
   btn.title = aboutInterview.active ? '继续关于我的逐题访谈' : '开始关于我的逐题访谈';
   btn.setAttribute('aria-pressed', String(aboutInterview.active));
+}
+
+function updateNavigationBackdrop() {
+  const backdrop = $('#nav-backdrop');
+  const hidden = uiState.navCollapsed || window.innerWidth > 840;
+  backdrop?.setAttribute('aria-hidden', String(hidden));
+  if (backdrop) backdrop.tabIndex = hidden ? -1 : 0;
 }
 
 function applyUiState({ persist = true } = {}) {
@@ -99,6 +106,7 @@ function applyUiState({ persist = true } = {}) {
   const app = $('.app');
   app?.classList.toggle('chat-mode', workspaceMode === 'chat');
   updateAboutButton();
+  updateNavigationBackdrop();
 
   const root = document.documentElement;
   for (const [key, lim] of Object.entries(WIDTH_LIMITS)) {
@@ -239,7 +247,7 @@ function setWorkspaceMode(mode) {
 }
 
 async function switchPanel(id) {
-  setNavigationCollapsed(true);
+  if (window.innerWidth <= 840) setNavigationCollapsed(true);
   if (id === 'chat') {
     setWorkspaceMode('chat');
     $('#input')?.focus();
@@ -688,6 +696,7 @@ function wireTopbar() {
   $('#btn-collapse-topbar').onclick = () => {
     setNavigationCollapsed(!uiState.navCollapsed);
   };
+  $('#nav-backdrop').onclick = () => setNavigationCollapsed(true);
   $('#btn-about-me').onclick = async () => {
     if (busy) { toast('等当前对话说完再开始访谈', 'warn'); return; }
     setWorkspaceMode('chat');
@@ -761,6 +770,11 @@ function wireTopbar() {
   };
 
 }
+
+window.addEventListener('resize', () => {
+  updateAboutButton();
+  updateNavigationBackdrop();
+});
 
 /* ══════════════ 启动 ══════════════ */
 
