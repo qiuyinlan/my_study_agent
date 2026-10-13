@@ -65,7 +65,7 @@ export function renderLearning(s, h) {
   const active = `${important}|${chores}`;
   const done = s.doneToday?.length || 0;
   const trackedMinutes = Math.max(0, Number(s.trackedMinutes) || 0);
-  const focusDuration = `${Math.floor(trackedMinutes / 60)}h${String(trackedMinutes % 60).padStart(2, '0')}min`;
+  const focusDuration = fmtFocusDuration(trackedMinutes);
   el.innerHTML = `<div class="learning-workspace">
     <section class="learning-hero">
       <div><span class="habit-kicker">STUDY WORKSPACE</span><h3>学习</h3><p>任务负责推进，规划负责拆解，日志记录每天实际学了什么。</p></div>
@@ -892,14 +892,23 @@ export function panelBadges(s) {
   const blocked = s.blocked?.length || 0;
   const overdue = s.overdue?.length || 0;
   const stale = s.timer?.stale ? 1 : 0;
-  const unfinished = (s.tasks || []).filter(t => !['DONE', 'CANCELLED'].includes(t.state)).length;
+  const unfinished = (s.tasks || []).filter(t => !['DONE', 'CANCELLED'].includes(t.state));
+  const important = unfinished.filter(t => (t.category || (['P0', 'P1'].includes(t.priority) ? 'important' : 'chore')) === 'important').length;
+  const chores = unfinished.length - important;
   const trackedMinutes = Math.max(0, Number(s.trackedMinutes) || 0);
-  const focusDuration = `${Math.floor(trackedMinutes / 60)}h${String(trackedMinutes % 60).padStart(2, '0')}min`;
+  const focusDuration = fmtFocusDuration(trackedMinutes);
   return {
     today: { label: blocked + overdue + stale, title: '需要留意', tone: 'urgent' },
-    tasks: { label: unfinished, title: '未完成任务', tone: 'count' },
-    learning: { label: focusDuration, title: '今日专注时长', tone: 'duration' },
+    tasks: { label: `${important}|${chores}`, title: '未完成主要任务 | 杂事', tone: 'count' },
+    records: { label: focusDuration, title: '今日专注时长', tone: 'duration' },
     habits: 0,
     life: 0,
   };
+}
+
+function fmtFocusDuration(minutes) {
+  const total = Math.max(0, Number(minutes) || 0);
+  const hours = Math.floor(total / 60);
+  const remainder = total % 60;
+  return hours ? `${hours}h${String(remainder).padStart(2, '0')}min` : `${remainder}min`;
 }

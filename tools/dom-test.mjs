@@ -343,9 +343,13 @@ const labels = navBtns.map(b => b.querySelector('.nav-label')?.textContent?.trim
 check('每项都有文字标签', labels.every(Boolean), labels.join(','));
 check('标签就是一级面板名',
   labels.join(',') === 'AI 对话,任务,复盘,学习,日志,生活导航', labels.join(','));
-check('侧边栏显示未完成任务数', $('.nav-btn[data-panel="tasks"] .nav-badge.count') !== null
-  && $('.nav-btn[data-panel="tasks"] .nav-badge')?.title === '未完成任务');
-check('侧边栏学习入口显示今日专注时长', /\d+h\d{2}min/.test($('.nav-btn[data-panel="learning"] .nav-badge.duration')?.textContent || ''));
+check('侧边栏任务入口显示主要任务|杂事未完成数', /\d+\|\d+/.test($('.nav-btn[data-panel="tasks"] .nav-badge.count')?.textContent || '')
+  && $('.nav-btn[data-panel="tasks"] .nav-badge')?.title === '未完成主要任务 | 杂事');
+check('侧边栏日志入口显示今日专注时长', /(?:\d+h\d{2}min|\d+min)/.test($('.nav-btn[data-panel="records"] .nav-badge.duration')?.textContent || '')
+  && !$('.nav-btn[data-panel="learning"] .nav-badge.duration'));
+const { panelBadges } = await import('../src/panels.js');
+check('未满一小时的专注时长只显示分钟', panelBadges({ trackedMinutes: 42 }).records.label === '42min');
+check('一小时及以上的专注时长显示小时和分钟', panelBadges({ trackedMinutes: 65 }).records.label === '1h05min');
 check('**使用内联 SVG 图标，不再是 emoji**',
   navBtns.every(b => b.querySelector('.nav-icon svg')), '有项目缺 SVG');
 check('导航区完全没有 emoji',
@@ -645,7 +649,7 @@ console.log('\n[6] 全部面板可切换并渲染');
 
 await openPanel('learning');
 check('学习入口按推进、回顾、积累分组', $$('#view-learning .learning-group').length === 3);
-check('学习页显示今日专注时长，格式为 xxhxxmin', /\d+h\d{2}min/.test($('#view-learning .learning-focus')?.textContent || ''),
+check('学习页显示今日专注时长', /(?:\d+h\d{2}min|\d+min)/.test($('#view-learning .learning-focus')?.textContent || ''),
   $('#view-learning .learning-focus')?.textContent);
 check('学习工作台入口在桌面布局中完整呈现', $$('#view-learning [data-learning-panel]').length === 6);
 check('学习入口任务数按主要任务|杂事展示', /\d+\|\d+/.test($('#view-learning [data-learning-panel="tasks"]')?.textContent || ''),
