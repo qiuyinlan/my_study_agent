@@ -231,7 +231,7 @@ const refreshAllDebounced = debounce(refreshAll, 300);
 function renderChrome() {
   // 学习工作台的内部页面仍归属于“学习”，保持一级导航位置感。
   const current = getCurrentPanel();
-  const learningPages = ['records', 'checkin', 'points', 'plans', 'sops', 'reviews', 'profile'];
+  const learningPages = ['checkin', 'points', 'plans', 'sops', 'reviews', 'profile'];
   const activeNav = workspaceMode === 'chat' ? 'chat' : learningPages.includes(current) ? 'learning' : current;
   renderNav(PANELS, activeNav, switchPanel, panelBadges(todayState));
   const backLearning = $('#btn-back-learning');

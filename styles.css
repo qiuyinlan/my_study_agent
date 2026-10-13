@@ -202,11 +202,14 @@ textarea { resize: vertical; }
 .nav-btn .nav-icon svg { width: 17px; height: 17px; display: block; }
 .nav-btn .nav-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .nav-btn .nav-badge {
-  min-width: 17px; height: 17px; padding: 0 5px;
-  border-radius: 9px; background: var(--danger); color: #fff;
-  font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center;
+  min-width: 17px; min-height: 17px; padding: 0 5px;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg-active); color: var(--fg-2);
+  font-size: 10.5px; font-weight: 700; line-height: 17px; text-align: center; white-space: nowrap;
   flex: 0 0 auto;
 }
+.nav-btn .nav-badge.urgent { border-color: transparent; background: var(--danger); color: #fff; }
+.nav-btn .nav-badge.count { color: var(--accent); }
 
 .nav-foot {
   border-top: 1px solid var(--line-soft);
@@ -1041,6 +1044,8 @@ body {
 .learning-hero p { margin:0; color:#6d806f; font-size:12px; }
 .learning-stats { display:flex; flex-direction:column; align-items:center; min-width:72px; padding:10px 12px; border-radius:14px; background:#f0f8f0; color:#6d806f; font-size:11px; }
 .learning-stats strong { color:#2f7d54; font-size:24px; line-height:1.1; }
+.learning-stats .learning-focus { margin-top:7px; font-size:16px; white-space:nowrap; }
+.learning-stats .learning-focus small { display:block; margin-top:3px; font-size:10px; }
 .learning-group { margin-top:22px; }
 .learning-group h4 { margin:0 0 10px; color:#5f7464; font-size:13px; font-weight:650; }
 .learning-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }

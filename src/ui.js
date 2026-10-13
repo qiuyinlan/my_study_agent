@@ -214,11 +214,17 @@ export function renderNav(panels, current, onSelect, badges = {}) {
   const el = $('#nav-items');
   if (!el) return;
   el.innerHTML = panels.map(p => {
-    const n = badges[p.id];
+    const badge = badges[p.id];
+    const label = badge && typeof badge === 'object' ? badge.label : badge;
+    const tone = badge && typeof badge === 'object' ? badge.tone : '';
+    const badgeTitle = badge && typeof badge === 'object' ? badge.title : '';
+    const showBadge = label !== undefined && label !== null && label !== ''
+      && (tone === 'count' || tone === 'duration' || Number(label) > 0);
+    const badgeLabel = typeof label === 'number' && label > 99 ? '99' : label;
     return `<button class="nav-btn ${p.id === current ? 'active' : ''}" data-panel="${p.id}" title="${esc(p.title)}">
       <span class="nav-icon">${icon(p.id)}</span>
       <span class="nav-label">${esc(p.title)}</span>
-      ${n > 0 ? `<span class="nav-badge">${n > 99 ? '99' : n}</span>` : ''}
+      ${showBadge ? `<span class="nav-badge ${esc(tone)}"${badgeTitle ? ` title="${esc(badgeTitle)}"` : ''}>${esc(badgeLabel)}</span>` : ''}
     </button>`;
   }).join('');
   $$('.nav-btn', el).forEach(btn => {

@@ -30,12 +30,12 @@ export const PANELS = [
   { id: 'tasks', title: '任务' },
   { id: 'today', title: '复盘' },
   { id: 'learning', title: '学习' },
+  { id: 'records', title: '日志' },
   { id: 'life', title: '生活导航' },
 ];
 
 const PANEL_META = [
   ...PANELS,
-  { id: 'records', title: '日志' },
   { id: 'checkin', title: '打卡' },
   { id: 'points', title: '积分' },
   { id: 'plans', title: '计划' },
@@ -64,17 +64,19 @@ export function renderLearning(s, h) {
   const chores = activeTasks.length - important;
   const active = `${important}|${chores}`;
   const done = s.doneToday?.length || 0;
+  const trackedMinutes = Math.max(0, Number(s.trackedMinutes) || 0);
+  const focusDuration = `${Math.floor(trackedMinutes / 60)}h${String(trackedMinutes % 60).padStart(2, '0')}min`;
   el.innerHTML = `<div class="learning-workspace">
     <section class="learning-hero">
       <div><span class="habit-kicker">STUDY WORKSPACE</span><h3>学习</h3><p>任务负责推进，规划负责拆解，日志记录每天实际学了什么。</p></div>
-      <div class="learning-stats"><strong>${done}<small> 完成</small></strong><span>主要任务 | 杂事：${active}</span></div>
+      <div class="learning-stats"><strong>${done}<small> 完成</small></strong><span>主要任务 | 杂事：${active}</span><strong class="learning-focus">${focusDuration}<small> 今日专注</small></strong></div>
     </section>
     <section class="learning-group"><h4>推进学习</h4><div class="learning-cards">
       <button class="learning-card primary-card" data-learning-panel="tasks"><span class="learning-card-top"><strong>任务</strong><b>${active}</b></span><small>主要任务 | 杂事</small></button>
       <button class="learning-card" data-learning-panel="plans"><span class="learning-card-top"><strong>规划</strong><b>›</b></span><small>把较大的目标拆成阶段和行动步骤</small></button>
     </div></section>
     <section class="learning-group"><h4>记录与回顾</h4><div class="learning-cards">
-      <button class="learning-card" data-learning-panel="records"><span class="learning-card-top"><strong>学习日志</strong><b>›</b></span><small>按日期查看和补记学习时长、内容与卡点</small></button>
+      <button class="learning-card" data-learning-panel="records"><span class="learning-card-top"><strong>日志</strong><b>›</b></span><small>按日期查看和补记学习时长、内容与卡点</small></button>
       <button class="learning-card" data-learning-panel="reviews"><span class="learning-card-top"><strong>复盘</strong><b>›</b></span><small>回看学习中的反复阻碍和有效策略</small></button>
     </div></section>
     <section class="learning-group"><h4>积累</h4><div class="learning-cards">
@@ -890,9 +892,13 @@ export function panelBadges(s) {
   const blocked = s.blocked?.length || 0;
   const overdue = s.overdue?.length || 0;
   const stale = s.timer?.stale ? 1 : 0;
+  const unfinished = (s.tasks || []).filter(t => !['DONE', 'CANCELLED'].includes(t.state)).length;
+  const trackedMinutes = Math.max(0, Number(s.trackedMinutes) || 0);
+  const focusDuration = `${Math.floor(trackedMinutes / 60)}h${String(trackedMinutes % 60).padStart(2, '0')}min`;
   return {
-    today: blocked + overdue + stale,
-    learning: 0,
+    today: { label: blocked + overdue + stale, title: '需要留意', tone: 'urgent' },
+    tasks: { label: unfinished, title: '未完成任务', tone: 'count' },
+    learning: { label: focusDuration, title: '今日专注时长', tone: 'duration' },
     habits: 0,
     life: 0,
   };

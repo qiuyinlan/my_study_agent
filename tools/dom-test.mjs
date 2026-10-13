@@ -237,9 +237,9 @@ const click = (sel) => {
   el.dispatchEvent(new window.Event('click', { bubbles: true }));
 };
 
-// 一级导航只保留四项；学习内页通过学习工作台卡片进入。
+// 学习子页可从学习工作台进入；日志也提供独立一级导航。
 const openPanel = async (panel) => {
-  if (['today', 'learning', 'habits', 'life'].includes(panel)) {
+  if (['today', 'learning', 'habits', 'life', 'records'].includes(panel)) {
     click(`.nav-btn[data-panel="${panel === 'habits' ? 'tasks' : panel}"]`);
   } else {
     click('.nav-btn[data-panel="learning"]');
@@ -337,12 +337,15 @@ check('对话区显示空状态提示', $('#messages .placeholder') !== null);
 console.log('\n[2] 界面结构（左导航带文字 + SVG 图标 + 可折叠）');
 
 const navBtns = $$('.nav-btn');
-check('导航渲染 AI 对话、任务和三个内容入口', navBtns.length === 5, String(navBtns.length));
+check('导航渲染 AI 对话、任务、学习、日志和生活入口', navBtns.length === 6, String(navBtns.length));
 
 const labels = navBtns.map(b => b.querySelector('.nav-label')?.textContent?.trim());
 check('每项都有文字标签', labels.every(Boolean), labels.join(','));
 check('标签就是一级面板名',
-  labels.join(',') === 'AI 对话,任务,复盘,学习,生活导航', labels.join(','));
+  labels.join(',') === 'AI 对话,任务,复盘,学习,日志,生活导航', labels.join(','));
+check('侧边栏显示未完成任务数', $('.nav-btn[data-panel="tasks"] .nav-badge.count') !== null
+  && $('.nav-btn[data-panel="tasks"] .nav-badge')?.title === '未完成任务');
+check('侧边栏学习入口显示今日专注时长', /\d+h\d{2}min/.test($('.nav-btn[data-panel="learning"] .nav-badge.duration')?.textContent || ''));
 check('**使用内联 SVG 图标，不再是 emoji**',
   navBtns.every(b => b.querySelector('.nav-icon svg')), '有项目缺 SVG');
 check('导航区完全没有 emoji',
@@ -640,6 +643,8 @@ console.log('\n[6] 全部面板可切换并渲染');
 
 await openPanel('learning');
 check('学习入口按推进、回顾、积累分组', $$('#view-learning .learning-group').length === 3);
+check('学习页显示今日专注时长，格式为 xxhxxmin', /\d+h\d{2}min/.test($('#view-learning .learning-focus')?.textContent || ''),
+  $('#view-learning .learning-focus')?.textContent);
 check('学习工作台入口在桌面布局中完整呈现', $$('#view-learning [data-learning-panel]').length === 6);
 check('学习入口任务数按主要任务|杂事展示', /\d+\|\d+/.test($('#view-learning [data-learning-panel="tasks"]')?.textContent || ''),
   $('#view-learning [data-learning-panel="tasks"]')?.textContent);
@@ -650,7 +655,7 @@ for (const panel of ['today', 'learning', 'life', 'records', 'tasks', 'points', 
   const view = $(`#view-${panel}`);
   const active = view?.classList.contains('active');
   const rendered = (view?.innerHTML.length || 0) > 10;
-  const navActive = $(`.nav-btn[data-panel="${['today', 'learning', 'habits', 'life', 'tasks'].includes(panel) ? panel : 'learning'}"]`)?.classList.contains('active');
+  const navActive = $(`.nav-btn[data-panel="${['today', 'learning', 'habits', 'life', 'tasks', 'records'].includes(panel) ? panel : 'learning'}"]`)?.classList.contains('active');
   const titled = ($('#panel-title')?.textContent || '').length > 0;
   check(`Panel ${panel} persisted`, JSON.parse(localStorage.getItem('msa.ui.v1')).currentPanel === panel);
   if (active && rendered && navActive && titled) panelOk++;
