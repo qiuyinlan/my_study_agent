@@ -689,8 +689,10 @@ body.resizing iframe, body.resizing textarea { pointer-events: none; }
 
 /* ═══════════ 待确认动作（承诺类工具）═══════════ */
 
-.pending-area { display: none; flex-direction: column; gap: 7px; padding: 0 32px; }
+.pending-area { display: none; flex-direction: column; gap: 7px; align-self: flex-start; width: min(100%, 720px); padding: 0; }
 .pending-area.on { display: flex; padding-bottom: 8px; }
+.pending-message { width: 100%; max-width: none; }
+.pending-message .bubble { width: 100%; }
 
 .task-summary { display: flex; align-items: baseline; gap: 9px; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
 .task-summary strong { color: var(--fg); font-size: 13px; }

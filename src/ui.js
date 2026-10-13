@@ -244,7 +244,9 @@ export function renderPendingArea(items, { onConfirm, onDismiss } = {}) {
   }
 
   el.classList.add('on');
-  el.innerHTML = items.map(p => `
+  el.innerHTML = `<div class="msg assistant pending-message">
+    <div class="who">帕尼尼</div>
+    <div class="bubble">${items.map(p => `
     <div class="pending-card ${p.danger ? 'danger' : ''}" data-pending="${p.id}">
       <div class="p-icon">${icon(p.danger ? 'alert' : 'play')}</div>
       <div class="p-main">
@@ -254,7 +256,8 @@ export function renderPendingArea(items, { onConfirm, onDismiss } = {}) {
       </div>
       <button type="button" class="${p.danger ? 'danger' : 'primary'}" data-confirm="${p.id}">${p.chatDraft ? '保存' : '确认'}</button>
       <button type="button" class="ghost" data-dismiss="${p.id}">不用</button>
-    </div>`).join('');
+    </div>`).join('')}</div>
+  </div>`;
 
   $$('[data-confirm]', el).forEach(b => { b.onclick = () => onConfirm?.(b.dataset.confirm); });
   $$('[data-dismiss]', el).forEach(b => { b.onclick = () => onDismiss?.(b.dataset.dismiss); });

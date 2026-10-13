@@ -443,6 +443,25 @@ check('Shift+Enter 会阻止换行并发送消息', shiftEnter.defaultPrevented
   && fetchLog.length > beforeShiftEnter
   && $$('.msg.user .bubble').at(-1)?.textContent === '快捷键发送测试');
 
+script = [
+  toolStream('timer_start', JSON.stringify({ task: '高频算法题单', plannedMin: 5 })),
+  textStream('对话里的确认卡片已经显示。'),
+];
+const timerRequestStart = fetchLog.length;
+await sendAndWait('给我计时，关联任务：高频算法题单，计划 5 分钟');
+const forcedTimerCall = fetchLog.slice(timerRequestStart).find(item => item.toolChoice?.function?.name === 'timer_start');
+check('明确说「给我计时」会强制调用待确认计时工具', Boolean(forcedTimerCall));
+check('待确认工具返回后不会重复强制调用计时', fetchLog.at(-1)?.toolChoice === 'auto');
+const timerPendingCard = $('#pending-area .pending-card');
+check('模型回复前确认按钮已实际渲染', Boolean(timerPendingCard)
+  && ($('#messages').textContent || '').includes('对话里的确认卡片已经显示。'));
+check('计时确认按钮属于帕尼尼消息并随对话滚动', timerPendingCard?.closest('.pending-message') !== null
+  && timerPendingCard?.closest('.messages') === $('#messages'));
+check('用户确认前不会启动计时', !$('#timerbar')?.classList.contains('on'));
+click('#pending-area [data-dismiss]');
+await waitFor(() => $$('#pending-area .pending-card').length === 0,
+  { label: '关闭计时确认卡片' });
+
 const scrollTestChat = document.createElement('section');
 scrollTestChat.className = 'chat';
 const scrollTestMessages = document.createElement('div');

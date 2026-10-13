@@ -38,6 +38,12 @@ function shouldForceProfileUpdate(text, messages) {
   return /[？?]/.test(previousText) && PROFILE_QUESTION_RE.test(previousText);
 }
 
+function shouldForceTimerStart(text) {
+  const value = String(text || '').trim();
+  if (/(?:不要|不用|取消|先不).{0,8}计时/u.test(value)) return false;
+  return /(?:给我|帮我|替我|请).{0,6}计时|(?:开始|启动)计时/u.test(value);
+}
+
 async function autoTitle(session, firstUserText) {
   if (session.title) return;
   const title = String(firstUserText).replace(/\s+/g, ' ').trim().slice(0, 24);
@@ -57,7 +63,7 @@ async function autoTitle(session, firstUserText) {
  * @param {(e:object)=>void} [o.onEvent]
  */
 export async function runTurn({ userText, codeNote = '', model = null, signal, onEvent, profileInterview = false }) {
-  const emit = e => { try { onEvent?.(e); } catch (err) { console.error('[onEvent]', err); } };
+  const emit = e => { try { return onEvent?.(e); } catch (err) { console.error('[onEvent]', err); } };
 
   const session = await ensureSession();
   await addMessage({ sessionId: session.id, role: 'user', content: userText });
@@ -104,6 +110,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
   let hitLimit = false;
   let aborted = false;
   const usedTools = [];
+  const forceTimerStart = shouldForceTimerStart(userText);
 
   try {
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -115,7 +122,9 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
       const res = await streamChat({
         messages: working,
         tools,
-        toolChoice: forceProfileUpdate
+        toolChoice: iter === 0 && forceTimerStart
+          ? { type: 'function', function: { name: 'timer_start' } }
+          : forceProfileUpdate
           ? { type: 'function', function: { name: 'update_profile' } }
           : 'auto',
         model,
@@ -154,9 +163,9 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
         emit({ type: 'tool_result', name, ok: !out.error, summary: out.summary || name,
           pending: Boolean(out.pending || out.chatApproval), toast: out.toast || '' });
         if (out.pending) {
-          emit({ type: 'pending', pendingId: out.pendingId, name, summary: out.summary });
+          await emit({ type: 'pending', pendingId: out.pendingId, name, summary: out.summary });
         }
-        if (out.chatApproval) emit({ type: 'pending', name, summary: out.summary });
+        if (out.chatApproval) await emit({ type: 'pending', name, summary: out.summary });
         if (out.refresh) emit({ type: 'refresh' });
         if (out.suspended !== undefined) emit({ type: 'suspended', value: out.suspended });
         if (out.openPanel) emit({ type: 'open_panel', panel: out.openPanel });

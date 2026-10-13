@@ -444,7 +444,7 @@ function setBusy(state) {
   btn.textContent = state ? '停止' : '发送';
 }
 
-function handleEvent(e) {
+async function handleEvent(e) {
   switch (e.type) {
     case 'delta': chat.appendDelta(e.text); break;
     case 'reasoning': chat.appendReasoning(e.text); break;
@@ -456,7 +456,7 @@ function handleEvent(e) {
       if (e.toast) toast(e.toast, e.ok === false ? 'err' : 'ok');
       if (e.name === 'update_profile' && e.confirmed) setAboutInterviewActive(false);
       break;
-    case 'pending': refreshPending(); break;
+    case 'pending': return refreshPending();
     // 模型可以帮用户切到相关面板（工具层返回 openPanel，不直接碰 DOM）
     case 'open_panel': switchPanel(e.panel); break;
     case 'notice': chat.notice(e.text); break;
