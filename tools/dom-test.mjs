@@ -558,6 +558,39 @@ check('点击按钮滚回最新消息并隐藏按钮', scrollTestMessages.scroll
 scrollTestView.finish();
 scrollTestChat.remove();
 
+const previousWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+const mobileScrollChat = document.createElement('section');
+mobileScrollChat.className = 'chat';
+const mobileScrollMessages = document.createElement('div');
+mobileScrollMessages.className = 'messages';
+mobileScrollChat.appendChild(mobileScrollMessages);
+document.body.appendChild(mobileScrollChat);
+let mobileScrollHeight = 500;
+Object.defineProperties(mobileScrollMessages, {
+  clientHeight: { configurable: true, value: 100 },
+  scrollHeight: { configurable: true, get: () => mobileScrollHeight },
+});
+const mobileScrollView = createChatView(mobileScrollMessages);
+mobileScrollView.appendUser('mobile scroll test', {});
+check('Mobile send initially moves to the newest message', mobileScrollMessages.scrollTop === 500);
+mobileScrollView.startAssistant({});
+mobileScrollHeight = 560;
+mobileScrollView.appendDelta('streaming mobile response');
+await wait(20);
+check('Mobile streaming leaves the viewport under user control', mobileScrollMessages.scrollTop === 500);
+mobileScrollMessages.scrollTop = 160;
+mobileScrollMessages.dispatchEvent(new window.Event('scroll'));
+mobileScrollHeight = 640;
+mobileScrollView.appendDelta('more streamed content');
+await wait(20);
+check('Manual mobile scrolling stays put while streaming', mobileScrollMessages.scrollTop === 160);
+mobileScrollChat.querySelector('.chat-jump-bottom')?.click();
+check('Mobile jump button can return to the newest content', mobileScrollMessages.scrollTop === 640);
+mobileScrollView.finish();
+mobileScrollChat.remove();
+Object.defineProperty(window, 'innerWidth', previousWidth);
+
 const userText = $('#messages .msg.user .bubble')?.textContent || '';
 const assistantBubbles = $$('.msg.assistant .bubble');
 const assistantText = assistantBubbles.map(b => b.textContent).join(' | ');

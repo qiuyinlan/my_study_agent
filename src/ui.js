@@ -319,6 +319,7 @@ export function createChatView(container) {
   let tools = null;
   let rafPending = false;
   let pinned = true;
+  let mobileStream = false;
 
   const jumpButton = document.createElement('button');
   jumpButton.type = 'button';
@@ -335,7 +336,7 @@ export function createChatView(container) {
   }
 
   function scrollToBottom() {
-    if (!pinned) return;
+    if (!pinned || (window.innerWidth <= 840 && mobileStream)) return;
     container.scrollTop = container.scrollHeight;
   }
 
@@ -344,6 +345,7 @@ export function createChatView(container) {
   });
 
   jumpButton.addEventListener('click', () => {
+    mobileStream = false;
     setPinned(true);
     container.scrollTop = container.scrollHeight;
   });
@@ -368,6 +370,7 @@ export function createChatView(container) {
 
   return {
     renderHistory(messages, profile) {
+      mobileStream = false;
       const pendingArea = $('#pending-area');
       container.innerHTML = '';
       if (!messages.length) {
@@ -396,6 +399,7 @@ export function createChatView(container) {
     },
 
     appendUser(text, profile) {
+      mobileStream = false;
       $('.placeholder', container)?.remove();
       setPinned(true);
       container.appendChild(bubble('user', esc(text).replace(/\n/g, '<br>'), profile?.userName || '你'));
@@ -403,6 +407,7 @@ export function createChatView(container) {
     },
 
     startAssistant(profile) {
+      mobileStream = true;
       $('.placeholder', container)?.remove();
       raw = '';
       reasoning = '';
