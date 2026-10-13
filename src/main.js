@@ -823,6 +823,12 @@ async function boot() {
   showPanel(uiState.currentPanel || 'tasks');
   workspaceMode = uiState.workspaceMode === 'chat' ? 'chat' : 'content';
   applyUiState();
+  void initDailyReviewSync(() => { void refreshAll(); })
+    .then(() => refreshAll())
+    .catch(error => console.warn('[daily-review-sync]', error));
+  void initTaskSync(() => { void refreshAll(); })
+    .catch(error => console.warn('[task-sync-init]', error))
+    .finally(() => { void refreshAll(); });
   wireComposer();
   wireTopbar();
   setBusy(false);
@@ -831,23 +837,13 @@ async function boot() {
   profile = await getProfile();
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
 
+  await initPrivateSync(() => { void refreshAll(); });
   profile = await getProfile();
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
 
   await ensureSession();
   await refreshAll();
   await refreshChat();
-
-  // Render browser data first; account checks and cloud merges continue in the background.
-  void initDailyReviewSync(() => { void refreshAll(); })
-    .then(() => refreshAll())
-    .catch(error => console.warn('[daily-review-sync]', error));
-  void initTaskSync(() => { void refreshAll(); })
-    .catch(error => console.warn('[task-sync-init]', error))
-    .finally(() => { void refreshAll(); });
-  void initPrivateSync(() => { void refreshAll(); })
-    .then(() => refreshAll())
-    .catch(error => console.warn('[private-sync-init]', error));
 
   // 镜像权限：浏览器每次重开页面都会重置
   try {
