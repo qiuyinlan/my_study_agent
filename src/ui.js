@@ -155,6 +155,7 @@ const ICON_PATHS = {
   profile: '<circle cx="12" cy="8" r="3.8"/><path d="M4.6 21v-.9A5.4 5.4 0 0110 14.7h4A5.4 5.4 0 0119.4 20v.9"/>',
   'chevron-left':  '<path d="M14.5 6L8.5 12l6 6"/>',
   'chevron-right': '<path d="M9.5 6l6 6-6 6"/>',
+  'arrow-down': '<path d="M12 4v16M5 13l7 7 7-7"/>',
   sidebar: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9.5 4v16"/>',
   panel:   '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M14.5 4v16"/>',
   refresh: '<path d="M21 3.5v5.5h-5.5"/><path d="M20.6 14.5a8.7 8.7 0 11-1.9-9.1L21 9"/>',
@@ -310,13 +311,32 @@ export function createChatView(container) {
   let rafPending = false;
   let pinned = true;
 
+  const jumpButton = document.createElement('button');
+  jumpButton.type = 'button';
+  jumpButton.className = 'chat-jump-bottom';
+  jumpButton.title = '回到最新消息';
+  jumpButton.setAttribute('aria-label', '回到最新消息');
+  jumpButton.innerHTML = icon('arrow-down');
+  jumpButton.hidden = true;
+  container.closest('.chat')?.appendChild(jumpButton);
+
+  function setPinned(value) {
+    pinned = value;
+    jumpButton.hidden = pinned;
+  }
+
   function scrollToBottom() {
     if (!pinned) return;
     container.scrollTop = container.scrollHeight;
   }
 
   container.addEventListener('scroll', () => {
-    pinned = container.scrollHeight - container.scrollTop - container.clientHeight < 90;
+    setPinned(container.scrollHeight - container.scrollTop - container.clientHeight < 90);
+  });
+
+  jumpButton.addEventListener('click', () => {
+    setPinned(true);
+    container.scrollTop = container.scrollHeight;
   });
 
   const flush = () => {
@@ -355,7 +375,7 @@ export function createChatView(container) {
         ));
       }
       if (pendingArea) container.appendChild(pendingArea);
-      pinned = true;
+      setPinned(true);
       scrollToBottom();
     },
 
@@ -368,14 +388,13 @@ export function createChatView(container) {
 
     appendUser(text, profile) {
       $('.placeholder', container)?.remove();
-      pinned = true;
+      setPinned(true);
       container.appendChild(bubble('user', esc(text).replace(/\n/g, '<br>'), profile?.userName || '你'));
       scrollToBottom();
     },
 
     startAssistant(profile) {
       $('.placeholder', container)?.remove();
-      pinned = true;
       raw = '';
       reasoning = '';
       current = bubble('assistant', '<span class="cursor"></span>', profile?.supervisorName || '帕尼尼');

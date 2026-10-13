@@ -22,6 +22,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'fake-indexeddb/auto';
+import { createChatView } from '../src/ui.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -429,6 +430,35 @@ input.value = '通过点击按钮发送';
 $('#btn-send').click();
 await waitIdle();
 check('点击发送按钮仍会提交', fetchLog.length > beforeEnter && $$('.msg.user .bubble').at(-1)?.textContent === '通过点击按钮发送');
+
+const scrollTestChat = document.createElement('section');
+scrollTestChat.className = 'chat';
+const scrollTestMessages = document.createElement('div');
+scrollTestMessages.className = 'messages';
+scrollTestChat.appendChild(scrollTestMessages);
+document.body.appendChild(scrollTestChat);
+Object.defineProperties(scrollTestMessages, {
+  clientHeight: { configurable: true, value: 100 },
+  scrollHeight: { configurable: true, value: 500 },
+});
+const scrollTestView = createChatView(scrollTestMessages);
+scrollTestView.appendUser('测试消息', {});
+check('新消息发送后先滚到最新位置', scrollTestMessages.scrollTop === 500);
+scrollTestView.startAssistant({});
+scrollTestView.appendDelta('持续跟随');
+await wait(20);
+check('停留在底部时流式输出继续跟随', scrollTestMessages.scrollTop === 500);
+scrollTestMessages.scrollTop = 120;
+scrollTestMessages.dispatchEvent(new window.Event('scroll'));
+scrollTestView.appendDelta('流式回复');
+await wait(20);
+check('手动上滑后流式输出不再强制拉回底部', scrollTestMessages.scrollTop === 120);
+const jumpButton = scrollTestChat.querySelector('.chat-jump-bottom');
+check('离开底部时显示回到底部按钮', Boolean(jumpButton) && !jumpButton.hidden);
+jumpButton?.click();
+check('点击按钮滚回最新消息并隐藏按钮', scrollTestMessages.scrollTop === 500 && jumpButton.hidden);
+scrollTestView.finish();
+scrollTestChat.remove();
 
 const userText = $('#messages .msg.user .bubble')?.textContent || '';
 const assistantBubbles = $$('.msg.assistant .bubble');
