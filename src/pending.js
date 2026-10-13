@@ -40,7 +40,7 @@ async function writeAll(list) {
  * 登记一个待确认动作。
  * 同一个工具只保留最新的一条 —— 否则模型一轮里调两次就会冒出两个按钮。
  */
-export async function addPending({ tool, args, label, detail = '', danger = false, sessionId = '' }) {
+export async function addPending({ tool, args, label, detail = '', danger = false, sessionId = '', operationId = '' }) {
   const list = await readAll();
   const rest = list.filter(p => p.tool !== tool);
   const rec = {
@@ -51,6 +51,7 @@ export async function addPending({ tool, args, label, detail = '', danger = fals
     detail,
     danger: Boolean(danger),
     sessionId,
+    operationId,
     createdAt: nowISO(),
     status: 'pending',
   };

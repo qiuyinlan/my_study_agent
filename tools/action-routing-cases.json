@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "description": "Deterministic routing fixtures. The incident is anonymized; other cases are synthetic.",
+  "cases": [
+    {
+      "id": "time-entry-explicit",
+      "source": "synthetic",
+      "category": "positive",
+      "text": "帮我登记自报30分钟，备注面经资料整理",
+      "expected": { "planner": true, "operations": ["log_time_entry"], "confirmation": true }
+    },
+    {
+      "id": "time-entry-ellipsis",
+      "source": "synthetic",
+      "category": "positive",
+      "text": "我没走计时器，帮我补记20分钟",
+      "expected": { "planner": true, "operations": ["log_time_entry"], "confirmation": true }
+    },
+    {
+      "id": "reported-missed-multi-write",
+      "source": "anonymized-user-report",
+      "category": "multiple-intents",
+      "text": "需要。你没有登记这30min，之前专注的5min也没登记。顺便把中午联系同学拿外网流量加到待办。",
+      "expected": { "planner": true, "operations": ["log_time_entry", "log_time_entry", "save_task"], "confirmation": [true, true, false] }
+    },
+    {
+      "id": "task-explicit",
+      "source": "synthetic",
+      "category": "positive",
+      "text": "顺便把中午联系同学拿外网流量加到待办",
+      "expected": { "planner": true, "operations": ["save_task"], "confirmation": false }
+    },
+    {
+      "id": "question-howto",
+      "source": "synthetic",
+      "category": "near-negative",
+      "text": "怎么登记专注时间？",
+      "expected": { "planner": false, "operations": [], "confirmation": false }
+    },
+    {
+      "id": "question-whether",
+      "source": "synthetic",
+      "category": "near-negative",
+      "text": "要不要把这件事加到待办？",
+      "expected": { "planner": false, "operations": [], "confirmation": false }
+    },
+    {
+      "id": "question-confirmation",
+      "source": "synthetic",
+      "category": "near-negative",
+      "text": "要现在登记到待办里吗？",
+      "expected": { "planner": false, "operations": [], "confirmation": false }
+    },
+    {
+      "id": "historical-question",
+      "source": "synthetic",
+      "category": "near-negative",
+      "text": "你之前有没有登记过专注时间？",
+      "expected": { "planner": false, "operations": [], "confirmation": false }
+    },
+    {
+      "id": "research-discussion",
+      "source": "synthetic",
+      "category": "near-negative",
+      "text": "帮我调研 AI 为什么会漏调用工具",
+      "expected": { "planner": false, "operations": [], "confirmation": false }
+    },
+    {
+      "id": "missing-duration",
+      "source": "synthetic",
+      "category": "insufficient-information",
+      "text": "帮我补记刚才的专注时间",
+      "expected": { "planner": true, "operations": [], "questions": ["minutes"], "confirmation": false }
+    },
+    {
+      "id": "missing-task-title",
+      "source": "synthetic",
+      "category": "insufficient-information",
+      "text": "帮我加到待办里",
+      "expected": { "planner": true, "operations": [], "questions": ["title"], "confirmation": false }
+    }
+  ]
+}

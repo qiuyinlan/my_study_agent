@@ -796,19 +796,23 @@ check('save_task 会保存 AI 指定的杂事分类', !out.error && (await dbm.l
 
 out = await executeTool('manage_micro_habit', JSON.stringify({ action: 'add', title: '读书五分钟' }));
 check('AI 能新增全局微习惯', !out.error && out.content.includes('读书五分钟'));
+check('微习惯新增通过 localStorage 读回核验', out.status === 'verified' && out.entity?.store === 'localStorage');
 out = await executeTool('list_micro_habits', '{}');
 check('AI 能读取全局微习惯和状态', !out.error && out.content.includes('读书五分钟'));
 out = await executeTool('manage_micro_habit', JSON.stringify({ action: 'complete', title: '读书五分钟' }));
 check('AI 能记录微习惯今日完成', !out.error && out.content.includes('标记完成'));
+check('微习惯完成状态通过 localStorage 读回核验', out.status === 'verified');
 out = await executeTool('manage_micro_habit', JSON.stringify({ action: 'delete', title: '读书五分钟' }));
 check('刪除微习惯会等用户确认', out.pending === true && out.content.includes('尚未执行'));
 
 out = await executeTool('manage_life_navigation', JSON.stringify({ action: 'add', kind: 'boredom', text: '出去散步十分钟' }));
 check('AI 能新增生活导航全局内容', !out.error && out.content.includes('出去散步十分钟'));
+check('生活导航新增通过 localStorage 读回核验', out.status === 'verified' && out.entity?.store === 'localStorage');
 out = await executeTool('manage_life_navigation', JSON.stringify({ action: 'list', kind: 'boredom' }));
 check('AI 能查看生活导航内容', !out.error && out.content.includes('出去散步十分钟'));
 out = await executeTool('manage_life_navigation', JSON.stringify({ action: 'update', kind: 'boredom', target: '出去散步十分钟', text: '出去散步十五分钟' }));
 check('AI 能修改生活导航内容', !out.error && out.content.includes('出去散步十五分钟'));
+check('生活导航修改通过 localStorage 读回核验', out.status === 'verified');
 out = await executeTool('manage_life_navigation', JSON.stringify({ action: 'delete', kind: 'boredom', target: '出去散步十五分钟' }));
 check('刪除生活导航内容会等用户确认', out.pending === true && out.content.includes('尚未执行'));
 out = await executeTool('open_panel', JSON.stringify({ panel: 'life' }));
@@ -899,7 +903,8 @@ check('save_checkin 先生成聊天确认草稿', out.chatApproval === true && !
 check('打卡确认前没有写入', (await records.getCheckin(util.dateStr()))?.topTask !== checkinArgs.topTask);
 const checkinDrafts = await chatApprovals.listChatWrites('smoke-checkin-approval');
 const checkinSaved = await executeTool(checkinDrafts[0].tool, checkinDrafts[0].args, { confirmed: true });
-check('确认后打卡写入成功', !checkinSaved.error);
+check('确认后打卡写入成功', !checkinSaved.error, checkinSaved.content);
+check('确认后打卡通过读回核验', checkinSaved.status === 'verified' && checkinSaved.entity?.store === 'checkins');
 await chatApprovals.removeChatWrites(checkinDrafts.map(item => item.id));
 
 out = await executeTool('save_review', JSON.stringify({ whatHappened: '刷手机', action: '' }));
@@ -909,6 +914,7 @@ out = await executeTool('record_procrastination', JSON.stringify({ pattern: 'e' 
 check('拖延记录先进入聊天确认', out.chatApproval === true && !out.error, out.content);
 out = await executeTool('record_procrastination', JSON.stringify({ pattern: 'e' }), { confirmed: true });
 check('确认后小写拖延模式也能识别', !out.error, out.content);
+check('拖延记录通过实体读回核验', out.status === 'verified' && out.entity?.store === 'reviews');
 check('给出了模式名与应对', out.content.includes('注意力') || out.content.includes('应对'));
 
 out = await executeTool('save_plan', JSON.stringify({
@@ -916,6 +922,7 @@ out = await executeTool('save_plan', JSON.stringify({
   items: [{ text: 'A', estMin: 40 }],
 }));
 check('save_plan 成功', !out.error);
+check('规划通过实体读回核验', out.status === 'verified' && out.entity?.store === 'plans');
 check('**过载被指出**', out.content.includes('过载') || out.content.includes('超'), out.content.slice(0, 200));
 
 out = await executeTool('save_sop', JSON.stringify({ name: '测试 SOP' }));
@@ -926,20 +933,23 @@ check('**暂停监督也需要用户确认**（它改变模型自己的行为）
 eq('确认前档案未改动', (await dbm.getProfile()).suspendUntil, null);
 
 out = await executeTool('suspend_supervision', '{}', { confirmed: true });
-check('确认后暂停成功', !out.error);
+check('确认后暂停成功', !out.error, out.content);
+check('档案更新通过读回核验', out.status === 'verified' && out.entity?.store === 'profile');
 check('返回 suspended 标记供 UI 用', out.suspended === true);
 eq('档案里暂停已写入', (await dbm.getProfile()).suspendUntil, 'indefinite');
 
 out = await executeTool('resume_supervision', '{}', { confirmed: true });
-check('resume_supervision 确认后成功', !out.error);
+check('resume_supervision 确认后成功', !out.error, out.content);
 eq('暂停已解除', (await dbm.getProfile()).suspendUntil, null);
 await pendingMod.clearPending();
 
 /* 错误路径 */
 out = await executeTool('set_task_state', '{坏 JSON');
 check('非法 JSON 被吞成可读错误', out.error === true);
+check('非法 JSON 使用参数错误码', out.errorCode === 'invalid_json');
 out = await executeTool('set_task_state', JSON.stringify({ id: '不存在的任务', state: 'DOING' }));
 check('找不到任务时给出可读错误', out.error === true && out.content.includes('找不到'));
+check('业务拒绝与参数错误分开', out.errorCode === 'business_rejected' && out.retryable === false);
 out = await executeTool('不存在的工具', '{}');
 check('不存在的工具返回错误', out.error === true);
 

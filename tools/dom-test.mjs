@@ -149,6 +149,18 @@ function toolStream(name, argsJson) {
   ]);
 }
 
+function multiToolStream(calls) {
+  return sseChunks([
+    chunk({ choices: [{ index: 0, delta: { role: 'assistant', content: '' } }] }),
+    chunk({ choices: [{ index: 0, delta: { tool_calls: calls.map((call, index) => ({
+      index, id: `call_${index + 1}`, type: 'function',
+      function: { name: call.name, arguments: JSON.stringify(call.args) },
+    })) } }] }),
+    chunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }),
+    'data: [DONE]\n\n',
+  ]);
+}
+
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
   let body = null;
@@ -564,10 +576,10 @@ check('助手消息带 assistant 类（无气泡底色）', $('.msg.assistant') 
 console.log('\n[4] 工具调用（agent 循环）');
 
 const beforeCalls = fetchLog.length;
-script = [
-  toolStream('save_task', JSON.stringify({ title: '写论文引言', priority: 'P0', area: 'work' })),
-  textStream('行，任务建好了。现在只做一件事：打开文档，写下标题和三个小标题。'),
-];
+script = [toolStream('plan_requested_actions', JSON.stringify({
+  actions: [{ kind: 'save_task', title: '写论文引言', priority: 'P0', area: 'work' }],
+  questions: [],
+}))];
 sendText('帮我把写论文加进任务');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(100);
@@ -577,29 +589,180 @@ check('界面显示中文工具执行回执', traces.some(t => t.includes('执�
 check('工具执行过程带工具图标', $$('#messages .tool-call svg').length > 0);
 check('工具回执不显示英文名或参数', !/save_task|title=|priority=|area=/.test(traces.join(' ')));
 check('工具调用后产出了文本回复',
-  ($('#messages').textContent || '').includes('标题和三个小标题'));
-check('本回合发了 2 次请求（工具 + 最终答复）', fetchLog.length - beforeCalls === 2,
+  ($('#messages').textContent || '').includes('写论文引言'));
+check('本回合发起一次强制规划请求，执行结果由代码组织回复', fetchLog.length - beforeCalls === 1,
   String(fetchLog.length - beforeCalls));
-check('请求都带上了工具定义', fetchLog.slice(beforeCalls).every(f => f.tools > 0),
+check('规划请求只暴露 action planner schema', fetchLog.slice(beforeCalls).every(f => f.tools === 1),
   JSON.stringify(fetchLog.slice(beforeCalls).map(f => f.tools)));
-check('**下发的是全量工具（分组下发已移除）**',
-  fetchLog.slice(beforeCalls).every(f => f.tools >= 35),
-  JSON.stringify(fetchLog.slice(beforeCalls).map(f => f.tools)));
+check('规划调用指定 plan_requested_actions',
+  fetchLog[beforeCalls]?.toolChoice?.function?.name === 'plan_requested_actions');
 
-script = [
-  toolStream('log_time_entry', JSON.stringify({ minutes: 13, note: 'DOM 测试耗时记录' })),
-  textStream('耗时已整理成草稿，保存按钮点下前还没有写入。'),
-];
+script = [toolStream('plan_requested_write_actions', JSON.stringify({
+  actions: [{ tool: 'log_time_entry', arguments: { minutes: 13, note: 'DOM 测试耗时记录' } }],
+  questions: [],
+}))];
 sendText('记录我刚才花了 13 分钟');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(80);
 const timeToolRows = $$('#messages .tool-call').map(el => el.textContent).join(' | ');
-check('耗时草稿回执明确显示待确认', timeToolRows.includes('待确认 · 记录耗时'));
+check('耗时草稿回执明确显示待确认', timeToolRows.includes('待确认 · 记录耗时'), timeToolRows);
 check('耗时回执不把工具名或参数暴露给用户', !/log_time_entry|minutes=13|note=/.test(timeToolRows));
-click('#pending-area [data-confirm]');
-await waitFor(() => ($('#messages').textContent || '').includes('已记录一笔自报耗时：13 分钟'),
-  { label: '确认后耗时记录写入', timeout: 8000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+if ($('#pending-area [data-confirm]')) {
+  click('#pending-area [data-confirm]');
+  await waitFor(() => ($('#messages').textContent || '').includes('已记录一笔自报耗时：13 分钟'),
+    { label: '确认后耗时记录写入', timeout: 8000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+} else {
+  check('待确认区提供耗时确认按钮', false, ($('#messages').textContent || '').slice(-500));
+}
 check('耗时草稿确认后才显示已记录', ($('#messages').textContent || '').includes('已记录一笔自报耗时：13 分钟'));
+
+const actionDb = await import('../src/db.js');
+const actionSession = await actionDb.ensureSession();
+const timeCountBeforePlan = await actionDb.db.timeEntries.count();
+const plannerCallStart = fetchLog.length;
+script = [toolStream('plan_requested_actions', JSON.stringify({
+  actions: [
+    { kind: 'log_time_entry', minutes: 30, note: '山羊算法面经资料检索和整合，自报耗时' },
+    { kind: 'log_time_entry', minutes: 5, note: '补记之前的专注，自报耗时' },
+    { kind: 'save_task', title: '中午联系同学拿外网流量', category: 'chore' },
+  ],
+  questions: [],
+}))];
+sendText('需要。然后你没有登记这30min，之前专注的5min也没登记。顺便把中午联系同学拿外网流量加到待办。');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(100);
+check('明确的多项记录请求强制调用规划函数', fetchLog.slice(plannerCallStart).length === 1
+  && fetchLog[plannerCallStart]?.toolChoice?.function?.name === 'plan_requested_actions');
+check('操作规划只提供受支持的安全写入类型', fetchLog[plannerCallStart]?.tools === 1);
+check('多项请求逐项保留两个耗时草稿和一个待办', (await actionDb.listTasks()).some(t => t.title === '中午联系同学拿外网流量')
+  && (await actionDb.getMeta('actionLedger', [])).filter(x => x.turnId && x.kind === 'log_time_entry').length >= 2);
+check('耗时待确认期间没有提前落库', await actionDb.db.timeEntries.count() === timeCountBeforePlan);
+check('待办保存已按实体 ID 读回核验', (await actionDb.getMeta('actionLedger', [])).some(x => x.kind === 'save_task' && x.status === 'verified'));
+check('界面逐项标明草稿待确认', ($('#messages').textContent || '').includes('草稿已生成，等待你确认'));
+const actionDraftButtons = $$('#pending-area [data-confirm]');
+check('两个耗时草稿各自有确认按钮', actionDraftButtons.length >= 2, String(actionDraftButtons.length));
+for (let i = 0; i < 2; i++) {
+  click('#pending-area [data-confirm]');
+  await wait(80);
+}
+check('逐项确认后两笔耗时均已落库', await actionDb.db.timeEntries.count() === timeCountBeforePlan + 2);
+const plannedTurnId = (await actionDb.sessionMessages(actionSession.id)).at(-2)?.id;
+check('逐项确认后操作账本更新为核验成功', (await actionDb.getMeta('actionLedger', []))
+  .filter(x => x.turnId === plannedTurnId)
+  .every(x => x.status === 'verified'));
+
+const timeCountBeforeMissingPlan = await actionDb.db.timeEntries.count();
+script = [textStream('已经帮你登记好了。')];
+sendText('帮我补记12分钟');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+check('模型未返回操作清单时没有执行写入', await actionDb.db.timeEntries.count() === timeCountBeforeMissingPlan);
+check('模型未返回操作清单时系统明确说未执行', ($('#messages').textContent || '').includes('没有拿到可验证的操作清单')
+  && !($('#messages .msg.assistant:last-child .bubble')?.textContent || '').includes('已经帮你登记好了'));
+
+const partialPlanTimeCount = await actionDb.db.timeEntries.count();
+script = [toolStream('plan_requested_actions', JSON.stringify({
+  actions: [
+    { kind: 'log_time_entry', minutes: 17, note: '信息完整项' },
+    { kind: 'log_time_entry', note: '缺少分钟数' },
+    { kind: 'save_task' },
+  ],
+  questions: ['第二笔耗时是多少分钟？', '要加入待办的具体事项是什么？'],
+}))];
+sendText('记一笔17分钟，再补记一笔专注，然后帮我加到待办');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+const partialTurnId = (await actionDb.sessionMessages(actionSession.id)).at(-2)?.id;
+const partialLedger = (await actionDb.getMeta('actionLedger', [])).filter(x => x.turnId === partialTurnId);
+check('部分信息不足时，完整操作仍生成待确认草稿', partialLedger.some(x => x.kind === 'log_time_entry' && x.args.minutes === 17 && x.status === 'awaiting_confirmation'));
+check('缺时长的操作单独标记 needs_info', partialLedger.some(x => x.kind === 'log_time_entry' && x.status === 'needs_info' && x.missingFields.includes('minutes')));
+check('缺标题的待办单独标记 needs_info', partialLedger.some(x => x.kind === 'save_task' && x.status === 'needs_info' && x.missingFields.includes('title')));
+check('一项缺信息不会造成任何记录提前落库', await actionDb.db.timeEntries.count() === partialPlanTimeCount);
+check('最终回复同时报告待确认项和缺失字段', ($('#messages').textContent || '').includes('草稿已生成，等待你确认')
+  && ($('#messages').textContent || '').includes('尚未执行，缺少时长'));
+click('#pending-area [data-dismiss]');
+await waitFor(() => $$('#pending-area .pending-card').length === 0,
+  { label: '取消部分计划中的待确认草稿', timeout: 5000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+
+script = [toolStream('plan_requested_actions', JSON.stringify({
+  actions: [
+    { kind: 'log_time_entry', minutes: 9, note: '重复耗时规划器回归' },
+    { kind: 'log_time_entry', minutes: 9, note: '重复耗时规划器回归' },
+  ],
+  questions: [],
+}))];
+sendText('补记一笔9分钟');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+const dedicatedDuplicateTurnId = (await actionDb.sessionMessages(actionSession.id)).at(-2)?.id;
+const dedicatedDuplicateActions = (await actionDb.getMeta('actionLedger', []))
+  .filter(x => x.turnId === dedicatedDuplicateTurnId && x.kind === 'log_time_entry');
+check('专用规划器同轮重复耗时只生成一个待确认草稿', $$('#pending-area .pending-card').length === 1);
+check('专用规划器重复耗时写入账本标记为合并', dedicatedDuplicateActions.length === 2
+  && dedicatedDuplicateActions.some(x => x.status === 'awaiting_confirmation')
+  && dedicatedDuplicateActions.some(x => x.status === 'deduplicated'));
+click('#pending-area [data-dismiss]');
+await waitFor(() => $$('#pending-area .pending-card').length === 0,
+  { label: '取消专用规划器的唯一重复草稿', timeout: 5000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+
+script = [toolStream('plan_requested_write_actions', JSON.stringify({
+  actions: [{ tool: 'save_review', arguments: { kind: 'daily', actual: '完成了整理', action: '明天先做一道题' } }],
+  questions: [],
+}))];
+sendText('帮我保存这次复盘');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+const gatedWriteReply = $('#messages').textContent || '';
+check('写入工具待确认时不会展示模型先行的完成态回复',
+  gatedWriteReply.includes('尚未写入，等待你确认') && !gatedWriteReply.includes('复盘已经保存好了'), gatedWriteReply.slice(-240));
+check('待确认写入的操作账本状态准确', (await actionDb.getMeta('actionLedger', []))
+  .some(x => x.kind === 'save_review' && x.status === 'awaiting_confirmation'));
+click('#pending-area [data-dismiss]');
+await waitFor(() => !($('#pending-area')?.textContent || '').includes('明天先做一道题'),
+  { label: '取消复盘草稿', timeout: 5000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+
+script = [toolStream('plan_requested_write_actions', JSON.stringify({
+  actions: [
+    { tool: 'save_review', arguments: { kind: 'daily', actual: '缺少行动字段' } },
+    { tool: 'save_review', arguments: { kind: 'daily', action: '明天继续', unexpected: true } },
+    { tool: 'save_review', arguments: { kind: 'daily', actual: '完整项仍执行', action: '明天先做一道题' } },
+  ],
+  questions: ['缺少复盘行动，请补充。'],
+}))];
+sendText('保存这三条复盘');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+const validationTurnId = (await actionDb.sessionMessages(actionSession.id)).at(-2)?.id;
+const validationActions = (await actionDb.getMeta('actionLedger', [])).filter(x => x.turnId === validationTurnId);
+const validationReply = $('#messages').textContent || '';
+check('通用规划缺少必填字段时单项转为 needs_info', validationActions.some(x => x.kind === 'save_review' && x.status === 'needs_info' && x.missingFields.includes('action')));
+check('通用规划拒绝未定义参数且不执行该项', validationActions.some(x => x.kind === 'save_review' && x.status === 'failed' && /unexpected/.test(x.detail)));
+check('多项规划中的完整写入仍生成唯一待确认草稿', validationActions.some(x => x.kind === 'save_review' && x.status === 'awaiting_confirmation')
+  && $$('#pending-area .pending-card').length === 1);
+check('通用规划最终回复逐项报告待确认、缺信息和失败', validationReply.includes('等待你确认') && validationReply.includes('缺少必要信息') && validationReply.includes('执行失败'));
+click('#pending-area [data-dismiss]');
+await waitFor(() => $$('#pending-area .pending-card').length === 0,
+  { label: '取消通用规划完整项草稿', timeout: 5000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+
+script = [toolStream('plan_requested_write_actions', JSON.stringify({
+  actions: [
+    { tool: 'save_review', arguments: { kind: 'daily', actual: '重复调用测试', action: '明天先做一道题' } },
+    { tool: 'save_review', arguments: { kind: 'daily', actual: '重复调用测试', action: '明天先做一道题' } },
+  ],
+  questions: [],
+}))];
+sendText('请保存今天的复盘');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+const duplicateTurnId = (await actionDb.sessionMessages(actionSession.id)).at(-2)?.id;
+const duplicateActions = (await actionDb.getMeta('actionLedger', [])).filter(x => x.turnId === duplicateTurnId && x.kind === 'save_review');
+check('同一轮相同写入只生成一个待确认草稿', $$('#pending-area .pending-card').length === 1);
+check('通用规划器重复列项被记录为合并，未再次执行', duplicateActions.length === 2
+  && duplicateActions.some(x => x.status === 'awaiting_confirmation')
+  && duplicateActions.some(x => x.status === 'deduplicated'));
+click('#pending-area [data-dismiss]');
+await waitFor(() => $$('#pending-area .pending-card').length === 0,
+  { label: '取消重复调用的唯一草稿', timeout: 5000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
 
 await openPanel('tasks');
 check('新建的任务出现在任务面板', ($('#view-tasks')?.textContent || '').includes('写论文引言'));
@@ -608,7 +771,20 @@ check('任务页提供最近七天日期切换', Boolean($('#view-tasks [data-ta
 check('任务页提供日历日期选择器', Boolean($('#view-tasks [data-task-date-picker]')));
 check('任务卡片提供完成勾选框', Boolean($('#view-tasks [data-task-check]')));
 check('手动任务状态不再显示可选下拉', !$('#task-state')?.matches('select'));
-check('新建任务的隐藏状态默认未完成', $('#task-state')?.value === 'INBOX');
+check('任务页只有一个右下角添加入口', $$('#view-tasks [data-new-task]').length === 1
+  && $('#view-tasks [data-new-task]')?.classList.contains('task-add-fab'));
+click('#view-tasks [data-new-task]');
+await waitFor(() => $('#dlg-task')?.open, { label: '打开简化任务弹窗' });
+const taskDate = $('#task-due')?.value;
+const localNow = new Date();
+const localToday = `${localNow.getFullYear()}-${String(localNow.getMonth() + 1).padStart(2, '0')}-${String(localNow.getDate()).padStart(2, '0')}`;
+check('添加弹窗只保留名称、分类、日期和预计耗时', Boolean($('#task-name') && $('#task-category') && $('#task-due') && $('#task-estimate'))
+  && !$('#task-goal') && !$('#task-priority') && !$('#task-next'));
+check('添加日期默认本地当天', taskDate === localToday);
+check('分类包含任务、杂事和微习惯', ['important', 'chore', 'microhabit'].every(value =>
+  [...$('#task-category').options].some(option => option.value === value)));
+check('预计耗时是选填项', !$('#task-estimate').required);
+$('#dlg-task').close('cancel');
 
 /* ══════════ 5. 代码动作路径 ══════════ */
 
@@ -678,6 +854,26 @@ check('微习惯区只显示简洁标题，不显示说明文案',
   $('#view-tasks [data-task-microhabits] .habit-hero h3')?.textContent === '微习惯'
     && !$('#view-tasks [data-task-microhabits] .habit-hero')?.textContent.includes('MICRO HABITS')
     && !$('#view-tasks [data-task-microhabits] .habit-hero')?.textContent.includes('小步完成'));
+const { renderTasks: renderTaskView } = await import('../src/panels.js');
+const { dateStr: localDate } = await import('../src/util.js');
+const todayForTasks = localDate();
+const yesterdayForTasks = new Date(`${todayForTasks}T12:00:00`);
+yesterdayForTasks.setDate(yesterdayForTasks.getDate() - 1);
+const yesterdayTaskDate = localDate(yesterdayForTasks);
+const taskViewHarness = {
+  tasks: [
+    { id: 'rollover-test', title: '顺延测试任务', state: 'NEXT', category: 'important', dueAt: yesterdayTaskDate },
+    { id: 'done-today-test', title: '今日完成测试', state: 'DONE', category: 'chore', dueAt: yesterdayTaskDate, actualEnd: new Date().toISOString() },
+    { id: 'done-yesterday-test', title: '昨日完成测试', state: 'DONE', category: 'chore', dueAt: yesterdayTaskDate, actualEnd: new Date(`${yesterdayTaskDate}T12:00:00`).toISOString() },
+  ],
+  keyTaskIds: [],
+  topics: [],
+};
+renderTaskView(taskViewHarness, {});
+check('未完成排期任务会顺延显示在今天', $('#view-tasks')?.textContent.includes('顺延测试任务'));
+check('已完成任务只显示在实际完成当天', $('#view-tasks')?.textContent.includes('今日完成测试')
+  && !$('#view-tasks')?.textContent.includes('昨日完成测试'));
+await openPanel('tasks');
 await openPanel('life');
 const lifeEntries = $$('.life-entry-card');
 check('生活导航显示四个入口和 SVG 图标', lifeEntries.length === 4 && lifeEntries.every(card => card.querySelector('.life-entry-icon svg')));
@@ -836,10 +1032,10 @@ const tasksBefore = $('#view-tasks')?.textContent || '';
 check('任务面板初始不含待测任务', !tasksBefore.includes('原地更新测试任务'),
   tasksBefore.slice(0, 60).replace(/\s+/g, ' '));
 
-script = [
-  toolStream('save_task', JSON.stringify({ title: '原地更新测试任务', priority: 'P1', area: 'work' })),
-  textStream('建好了。现在开始第一件事。'),
-];
+script = [toolStream('plan_requested_write_actions', JSON.stringify({
+  actions: [{ tool: 'save_task', arguments: { title: '原地更新测试任务', priority: 'P1', area: 'work' } }],
+  questions: [],
+}))];
 sendText('帮我加个任务：原地更新测试任务');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(500);   // 给 refreshAll 留出时间（它在 setBusy(false) 之后才 await）
@@ -881,10 +1077,10 @@ click('#btn-refresh-panel');
 await wait(450);
 check('待确认区已清空', $$('#pending-area .pending-card').length === 0);
 
-script = [
-  toolStream('set_key_tasks', JSON.stringify({ ids: ['原地更新测试任务'] })),
-  textStream('今天的关键任务就是它了。'),
-];
+script = [toolStream('plan_requested_write_actions', JSON.stringify({
+  actions: [{ tool: 'set_key_tasks', arguments: { ids: ['原地更新测试任务'] } }],
+  questions: [],
+}))];
 sendText('把刚那个设成今天的关键任务');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(600);

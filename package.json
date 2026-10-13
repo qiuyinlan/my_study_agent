@@ -9,12 +9,13 @@
     "probe:ai": "node tools/cors-probe.mjs",
     "check": "node tools/check.mjs",
     "audit:tools": "node tools/tool-audit.mjs",
+    "eval:actions": "node tools/action-routing-eval.mjs",
     "cost:tools": "node tools/tool-cost.mjs",
     "cost:prompt": "node tools/prompt-cost.mjs",
     "test": "node tools/smoke-test.mjs",
     "test:dom": "node tools/dom-test.mjs",
-    "verify": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/smoke-test.mjs",
-    "verify:all": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/smoke-test.mjs && node tools/dom-test.mjs",
+    "verify": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/action-routing-eval.mjs && node tools/smoke-test.mjs",
+    "verify:all": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/action-routing-eval.mjs && node tools/smoke-test.mjs && node tools/dom-test.mjs",
     "verify:served": "node tools/verify-served.mjs"
   },
   "devDependencies": {

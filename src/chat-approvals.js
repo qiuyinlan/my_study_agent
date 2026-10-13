@@ -11,9 +11,11 @@ async function readAll() {
     .filter(item => new Date(item.createdAt).getTime() > cutoff);
 }
 
-export async function stageChatWrite({ tool, args, sessionId }) {
+export async function stageChatWrite({ tool, args, sessionId, operationId = '' }) {
   const all = await readAll();
-  const item = { id: uid('chat_approval_'), tool, args, sessionId, createdAt: nowISO() };
+  const existing = operationId && all.find(item => item.operationId === operationId);
+  if (existing) return existing;
+  const item = { id: uid('chat_approval_'), tool, args, sessionId, operationId, createdAt: nowISO() };
   await setMeta(META_KEY, [...all, item].slice(-30));
   return item;
 }

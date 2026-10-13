@@ -37,8 +37,9 @@ import {
 import { computeToday } from './planner.js';
 import { addPending } from './pending.js';
 import { stageChatWrite } from './chat-approvals.js';
+import { buildActionDiagnosticsExport } from './action-diagnostics.js';
 import { buildMarkdownExport, markdownStats } from './exportmd.js';
-import { listMicroHabits, changeMicroHabit, getTodayHabitSnapshot } from './microhabit.js';
+import { listMicroHabits, changeMicroHabit, getTodayHabitSnapshot, loadMicroHabitState } from './microhabit.js';
 import { listLifeNavigation, changeLifeNavigation } from './life.js';
 import { endOfToday, dateStr, nowISO, daysUntil, download } from './util.js';
 
@@ -84,6 +85,19 @@ const taskLine = t => {
 };
 
 const lock = (content, summary, extra = {}) => ({ content, summary, ...extra });
+
+function classifyExecutionError(error) {
+  const name = String(error?.name || '');
+  const message = String(error?.message || '');
+  if (/network|fetch|timeout|timed out|连接|网络/i.test(`${name} ${message}`)) {
+    return { errorCode: 'network_error', retryable: true };
+  }
+  if (['QuotaExceededError', 'ConstraintError', 'DataError', 'TransactionInactiveError', 'AbortError', 'UnknownError'].includes(name)
+    || /indexeddb|database|持久化|事务/i.test(`${name} ${message}`)) {
+    return { errorCode: 'persistence_error', retryable: false };
+  }
+  return { errorCode: 'business_rejected', retryable: false };
+}
 
 /* ══════════════ 工具实现 ══════════════ */
 
@@ -178,7 +192,7 @@ const IMPL = {
     return lock(
       `已保存：${taskLine(saved)}${hints.length ? `\n${hints.join('\n')}` : ''}`,
       `save_task(${saved.title})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'tasks', id: saved.id } },
     );
   },
 
@@ -205,14 +219,14 @@ const IMPL = {
     return lock(
       `「${saved.title}」现在状态 ${st}（${TASK_STATES[st].label}）${hints.length ? `\n${hints.join('\n')}` : ''}`,
       `set_task_state(${saved.title} → ${st})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'tasks', id: saved.id } },
     );
   },
 
   async delete_task({ id }) {
     const t = await needTask(id);
     await deleteTask(t.id);
-    return lock(`已删除任务「${t.title}」。知识点、时间记录和学习日志都保留。`, `delete_task(${t.title})`, { refresh: true });
+    return lock(`已删除任务「${t.title}」。知识点、时间记录和学习日志都保留。`, `delete_task(${t.title})`, { refresh: true, resultRef: { store: 'tasks', id: t.id, deleted: true } });
   },
 
   async set_key_tasks({ ids = [] }) {
@@ -228,7 +242,7 @@ const IMPL = {
     return lock(
       `今日关键任务已设定（${rec.ids.length} 个）：\n${list.map(t => `- ${taskLine(t)}`).join('\n')}`,
       `set_key_tasks(${rec.ids.length})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'meta', id: 'keyTasks', expectedValue: rec } },
     );
   },
 
@@ -247,7 +261,9 @@ const IMPL = {
       + `${timer.plannedMin ? `计划 ${timer.plannedMin} 分钟\n` : ''}`
       + '让用户自己设个闹钟（我做不到主动提醒）。做完回来汇报，我会算出真实耗时。',
       `timer_start(${timer.label})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'meta', id: 'activeTimer', expectedValue: {
+        id: timer.id, taskId: timer.taskId, plannedMin: timer.plannedMin, note: timer.note, startedAt: timer.startedAt,
+      } } },
     );
   },
 
@@ -273,7 +289,7 @@ const IMPL = {
     }
     lines.push('');
     lines.push('按 §9 继续核验：完成内容是什么？是否达到完成标准？要不要更新任务状态？');
-    return lock(lines.join('\n'), `timer_stop(${r.actualMin}min)`, { refresh: true });
+    return lock(lines.join('\n'), `timer_stop(${r.actualMin}min)`, { refresh: true, resultRef: { store: 'timeEntries', id: r.entry.id } });
   },
 
   async timer_status({}) {
@@ -307,7 +323,7 @@ const IMPL = {
       + `${t ? `（任务：${t.title}）` : ''}${note ? `　备注：${note}` : ''}\n`
       + '注意：这不是计时结果，是用户报告的时间。核验时要说清来源。',
       `log_time_entry(${entry.actualMin ?? entry.selfReportedMin}min)`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'timeEntries', id: entry.id } },
     );
   },
 
@@ -352,7 +368,9 @@ const IMPL = {
       `记录编号：${entry.id}`,
       '任务累计耗时已根据专注记录重新计算。',
     ];
-    return lock(lines.join('\n'), `专注记录已修正 · ${entry.actualMin} 分钟`, { refresh: true });
+    return lock(lines.join('\n'), `专注记录已修正 · ${entry.actualMin} 分钟`, {
+      refresh: true, resultRef: { store: 'timeEntries', id: entry.id },
+    });
   },
 
   /* ────────── 积分（§十二）────────── */
@@ -400,7 +418,7 @@ const IMPL = {
       `已记账：${entry.delta > 0 ? '+' : ''}${entry.delta}　${entry.reason}${entry.confirmed ? '' : '（**待用户确认**）'}\n`
       + '提醒：这只是记录，不代表任何真实惩罚或权限限制。',
       `award_points(${entry.delta})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'points', id: entry.id } },
     );
   },
 
@@ -411,7 +429,7 @@ const IMPL = {
     }
     if (!id) throw new Error('需要提供 id，或设 all=true 确认全部');
     const e = await confirmPoints(id, true);
-    return lock(`已确认：${e.date} ${e.delta > 0 ? '+' : ''}${e.delta} ${e.reason}`, 'confirm_points', { refresh: true });
+    return lock(`已确认：${e.date} ${e.delta > 0 ? '+' : ''}${e.delta} ${e.reason}`, 'confirm_points', { refresh: true, resultRef: { store: 'points', id: e.id } });
   },
 
   async upsert_reward({ id = '', name = '', cost = null, note = '', remove = false }) {
@@ -421,7 +439,7 @@ const IMPL = {
       return lock('已删除该奖励。', 'upsert_reward(删除)', { refresh: true });
     }
     const r = await upsertReward({ id: id || undefined, name, cost, note });
-    return lock(`已保存奖励：${r.name}　${r.cost} 分${r.note ? `　${r.note}` : ''}`, `upsert_reward(${r.name})`, { refresh: true });
+    return lock(`已保存奖励：${r.name}　${r.cost} 分${r.note ? `　${r.note}` : ''}`, `upsert_reward(${r.name})`, { refresh: true, resultRef: { store: 'rewards', id: r.id } });
   },
 
   async redeem_reward({ id }) {
@@ -444,7 +462,7 @@ const IMPL = {
       `打卡已记录（${rec.date}）：\n${filled.map(([k, v]) => `- ${k}：${v}`).join('\n') || '（本次没填任何字段）'}\n`
       + '用户可以跳过任何项目，不要追问没填的。',
       `save_checkin(${rec.date})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'checkins', id: rec.id } },
     );
   },
 
@@ -496,7 +514,7 @@ const IMPL = {
       + (rec.lesson ? `- 预防措施：${rec.lesson}\n` : '')
       + '\n§11 要求：不要让复盘变成没有行动出口的自我批评。最后确认一下他会不会真的去做那个 action。',
       `save_review(${rec.kind})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'reviews', id: rec.id } },
     );
   },
 
@@ -511,7 +529,7 @@ const IMPL = {
     if (stats.established && stats.top) {
       lines.push(`目前最常见的模式是 ${stats.top.pattern} ${stats.top.label}，共 ${stats.top.count} 次。`);
     }
-    return lock(lines.join('\n'), `record_procrastination(${rec.pattern})`, { refresh: true });
+    return lock(lines.join('\n'), `record_procrastination(${rec.pattern})`, { refresh: true, resultRef: { store: 'reviews', id: rec.id } });
   },
 
   async list_reviews({ kind = '', limit = 20 }) {
@@ -554,7 +572,7 @@ const IMPL = {
     }
     const next = nextPlanAction(plan);
     if (next) lines.push(`\n下一步：**${next.startWith}**`);
-    return lock(lines.join('\n'), `save_plan(${plan.code})`, { refresh: true });
+    return lock(lines.join('\n'), `save_plan(${plan.code})`, { refresh: true, resultRef: { store: 'plans', id: plan.id } });
   },
 
   async list_plans({ status = '' }) {
@@ -615,7 +633,7 @@ const IMPL = {
       + `一分钟启动版：**${sop.quickStart}**\n`
       + '提醒：启动困难的时候直接用那个一分钟版本，不要从头看步骤。',
       `save_sop(${sop.name})`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'sops', id: sop.id } },
     );
   },
 
@@ -700,7 +718,7 @@ const IMPL = {
 
     if (!Object.keys(patch).length) throw new Error('没有提供任何要更新的字段');
 
-    await saveProfile(patch);
+    const saved = await saveProfile(patch);
 
     // 回执里带上"改成了什么"，界面据此弹提示 ——
     // 否则用户说完称呼，只能靠自己翻档案面板确认到底存没存上。
@@ -715,7 +733,7 @@ const IMPL = {
       `档案已更新：\n${Object.entries(patch).map(([k, v]) => `- ${k}：${Array.isArray(v) ? v.join('；') : v}`).join('\n')}\n\n`
       + '界面右侧「档案」面板随时能看到当前值。',
       `update_profile(${Object.keys(patch).join(',')})`,
-      { refresh: true, toast: toastText },
+      { refresh: true, toast: toastText, resultRef: { store: 'profile', id: saved.id } },
     );
   },
 
@@ -728,19 +746,19 @@ const IMPL = {
       if (Number.isNaN(d.getTime())) throw new Error('until 必须是可解析的时间，或留空表示一直暂停到用户解除');
       value = d.toISOString();
     }
-    await saveProfile({ suspendUntil: value });
+    const saved = await saveProfile({ suspendUntil: value });
     return lock(
       `监督已暂停（${value === 'indefinite' ? '直到用户解除' : value.slice(0, 16)}）。${reason ? `原因：${reason}\n` : ''}`
       + '接下来只回应他说的，不催任务、不算积分、不做复盘、不用冷嘲。\n'
       + '这是 §3 的安全要求，优先级高于人设和语气强度设定。',
       'suspend_supervision',
-      { refresh: true, suspended: true },
+      { refresh: true, suspended: true, resultRef: { store: 'profile', id: saved.id } },
     );
   },
 
   async resume_supervision({}) {
-    await saveProfile({ suspendUntil: null });
-    return lock('监督已恢复。可以正常推进任务了 —— 但先问一句他现在状态怎么样，别一上来就催。', 'resume_supervision', { refresh: true });
+    const saved = await saveProfile({ suspendUntil: null });
+    return lock('监督已恢复。可以正常推进任务了 —— 但先问一句他现在状态怎么样，别一上来就催。', 'resume_supervision', { refresh: true, resultRef: { store: 'profile', id: saved.id } });
   },
 
   /* ────────── 长期记忆 ────────── */
@@ -752,7 +770,7 @@ const IMPL = {
       importance: Math.min(5, Math.max(1, Number(importance) || 3)),
       tags: Array.isArray(tags) ? tags.slice(0, 6).map(String) : [],
     });
-    return lock(`已写入长期记忆（${mem.kind}，重要度 ${mem.importance}/5）：${mem.text}`, `save_memory(${mem.text.slice(0, 20)}…)`, { refresh: true });
+    return lock(`已写入长期记忆（${mem.kind}，重要度 ${mem.importance}/5）：${mem.text}`, `save_memory(${mem.text.slice(0, 20)}…)`, { refresh: true, resultRef: { store: 'memories', id: mem.id } });
   },
 
   async search_memory({ query, limit = 8 }) {
@@ -782,7 +800,7 @@ const IMPL = {
     const mem = await db.memories.get(String(id).trim());
     if (!mem) throw new Error('找不到这条记忆');
     await deleteMemory(mem.id);
-    return lock(`已删除记忆：${mem.text}`, 'forget_memory', { refresh: true });
+    return lock(`已删除记忆：${mem.text}`, 'forget_memory', { refresh: true, resultRef: { store: 'memories', id: mem.id, deleted: true } });
   },
 
   /* ────────── 学习模块 ────────── */
@@ -791,21 +809,25 @@ const IMPL = {
     const t = task ? await resolveTask(task) : null;
     const topicRec = await findOrCreateTopic(topic, { taskId: t?.id || '' });
     let extra = '';
+    let log = null;
     const g = grade === null || grade === '' ? null : Number(grade);
     if (g !== null && Number.isFinite(g) && g >= 0 && g <= 5) {
       const r = await gradeTopic(topicRec.id, g, { minutes, note: what || `学习「${topicRec.name}」` });
       extra = `　→ 自评 ${g}/5，下次复习安排在${describeInterval(r.dueInDays)}`;
     } else {
-      await addLog({
+      log = await addLog({
         topicId: topicRec.id, topicName: topicRec.name,
         taskId: topicRec.taskId || t?.id || '', minutes,
         what: what || `学习「${topicRec.name}」`, blockers,
       });
     }
+    const resultRef = log
+      ? { store: 'logs', id: log.id }
+      : { store: 'topics', id: topicRec.id };
     const lines = [`已记录：${topicRec.name}　${minutes} 分钟　${what}${extra}`];
     if (blockers) lines.push(`卡点：${blockers}`);
     if (t) lines.push(`关联任务：${t.title}（状态 ${t.state}，进度 ${t.progress ?? 0}%）`);
-    return lock(lines.join('\n'), `log_study(${topicRec.name}, ${minutes}min)`, { refresh: true });
+    return lock(lines.join('\n'), `log_study(${topicRec.name}, ${minutes}min)`, { refresh: true, resultRef });
   },
 
   async grade_review({ topic, grade, note = '' }) {
@@ -817,18 +839,18 @@ const IMPL = {
     return lock(
       `「${topicRec.name}」评分 ${g}/5，掌握度 ${r.topic.mastery}/5，下次复习${describeInterval(r.dueInDays)}。`,
       `grade_review(${topicRec.name}, ${g}/5)`,
-      { refresh: true },
+      { refresh: true, resultRef: { store: 'topics', id: r.topic.id } },
     );
   },
 
   async add_topic({ name, task = '', note = '' }) {
     const existing = await resolveTopic(name);
     if (existing) {
-      return lock(`知识点「${existing.name}」已存在（掌握度 ${existing.mastery ?? 0}/5）。`, `add_topic(${existing.name})已存在`, { refresh: true });
+      return lock(`知识点「${existing.name}」已存在（掌握度 ${existing.mastery ?? 0}/5）。`, `add_topic(${existing.name})已存在`, { refresh: true, resultRef: { store: 'topics', id: existing.id } });
     }
     const t = task ? await resolveTask(task) : null;
     const rec = await upsertTopic({ name, taskId: t?.id || '', note });
-    return lock(`已新建知识点「${rec.name}」，首次复习安排到明天${t ? `，归属任务「${t.title}」` : ''}。`, `add_topic(${rec.name})`, { refresh: true });
+    return lock(`已新建知识点「${rec.name}」，首次复习安排到明天${t ? `，归属任务「${t.title}」` : ''}。`, `add_topic(${rec.name})`, { refresh: true, resultRef: { store: 'topics', id: rec.id } });
   },
 
   async list_topics({ dueOnly = false }) {
@@ -852,7 +874,17 @@ const IMPL = {
   async manage_micro_habit({ action, id = '', title = '', date = '' }) {
     const habit = changeMicroHabit({ action, id, title, date: date || dateStr() });
     const labels = { add: '新增', update: '修改', delete: '删除', complete: '标记完成', uncomplete: '取消完成', activate: '启用', deactivate: '停用' };
-    return lock(`已${labels[action]}微习惯「${habit.title}」。`, `manage_micro_habit(${action}:${habit.title})`, { refresh: true });
+    const day = date || dateStr();
+    const completed = new Set(loadMicroHabitState().completions?.[day] || []).has(habit.id);
+    return lock(`已${labels[action]}微习惯「${habit.title}」。`, `manage_micro_habit(${action}:${habit.title})`, {
+      refresh: true,
+      resultRef: {
+        store: 'localStorage', id: habit.id, namespace: 'microHabit', action, date: day,
+        deleted: action === 'delete', expected: {
+          title: habit.title, active: habit.active, completed,
+        },
+      },
+    });
   },
 
   async manage_life_navigation({ action, kind = '', id = '', target = '', text = '' }) {
@@ -869,7 +901,13 @@ const IMPL = {
     const item = changeLifeNavigation({ action, kind, id: id || target, text });
     const value = item?.title || item?.content || item?.text || text;
     const labels = { add: '新增', update: '修改', delete: '删除' };
-    return lock(`已${labels[action]}生活导航中的「${value}」。`, `manage_life_navigation(${action}:${kind})`, { refresh: true });
+    return lock(`已${labels[action]}生活导航中的「${value}」。`, `manage_life_navigation(${action}:${kind})`, {
+      refresh: true,
+      resultRef: {
+        store: 'localStorage', id: item.id, namespace: 'lifeNavigation', kind, action,
+        deleted: action === 'delete', expected: { value },
+      },
+    });
   },
 
   /* ────────── 导出与界面导航 ──────────
@@ -887,6 +925,20 @@ const IMPL = {
       + '这份文档是自包含的，用户换到别的 AI 会话时整份贴进去就能接着用。',
       `export_records(${stats.lines} 行)`,
       { toast: `已导出记录（${stats.lines} 行）`, refresh: false },
+    );
+  },
+
+  async export_action_diagnostics({ limit = 300 }) {
+    const data = await buildActionDiagnosticsExport({ limit: Math.min(300, Math.max(1, Number(limit) || 300)) });
+    if (typeof document !== 'undefined' && typeof URL?.createObjectURL === 'function') {
+      download(`帕尼尼工具诊断-${dateStr()}.json`, JSON.stringify(data, null, 2), 'application/json');
+    }
+    const actionCount = data.actions.length;
+    const turnCount = data.turns.length;
+    return lock(
+      `已生成工具调用诊断文件：${turnCount} 个回合、${actionCount} 项操作。文件不包含原话、回复、参数值或用户/记录 ID。`,
+      `export_action_diagnostics(${turnCount}回合/${actionCount}项)`,
+      { toast: `已导出工具诊断（${turnCount} 回合）`, refresh: false },
     );
   },
 
@@ -961,10 +1013,15 @@ async function buildMarkdownExportStats(includeAll) {
 const P = (props, required) => ({
   type: 'object',
   properties: props,
+  additionalProperties: false,
   ...(required?.length ? { required } : {}),
 });
 const S = d => ({ type: 'string', description: d });
-const N = d => ({ type: 'integer', description: d });
+const N = (d, minimum, maximum) => ({
+  type: 'integer', description: d,
+  ...(minimum != null ? { minimum } : {}),
+  ...(maximum != null ? { maximum } : {}),
+});
 const B = d => ({ type: 'boolean', description: d });
 const A = (d, items = { type: 'string' }) => ({ type: 'array', description: d, items });
 const ENUM = (d, values) => ({ type: 'string', description: d, enum: values });
@@ -974,7 +1031,7 @@ const DEF = {
   list_tasks: ['列出任务及状态。用户问"我有哪些任务""现在进度怎么样"，或你需要先看清全局再决定下一步时调用。只想看某一个任务的完整细节，用 get_task。', P({
     state: ENUM('按状态筛选', Object.keys(TASK_STATES)),
     area: ENUM('按领域筛选', Object.keys(AREAS)),
-    limit: N('最多返回几条，默认 30'),
+    limit: N('最多返回几条，默认 30', 1, 100),
   })],
   get_task: ['查看单个任务的完整字段和时间记录。需要某个任务的全部细节（实际耗时、复盘、阻碍、里程碑）时用。只是想知道有哪些任务，用 list_tasks。', P({ id: S('任务 id 或标题') }, ['id'])],
   save_task: ['新建或更新任务。用户定目标、改截止、推进度、写下一步或阻碍时调用；他描述出一件要做的事、你判断该记下来时也调它。必须按用户说的分类传 category：杂事用 chore，主要任务用 important；不要默认把杂事存成主要任务。只是改状态请用 set_task_state。', P({
@@ -986,15 +1043,15 @@ const DEF = {
     area: ENUM('领域', Object.keys(AREAS)),
     goal: S('想达成什么，越具体越好'),
     dueAt: S('截止日期 YYYY-MM-DD'),
-    estimateMin: N('预计耗时（分钟）'),
+    estimateMin: N('预计耗时（分钟）', 0, 10080),
     plannedStart: S('计划开始时间'),
     nextAction: S('下一步行动 —— 必须具体到看着就知道怎么做'),
     blocker: S('当前阻碍。标 BLOCKED 时必须写'),
-    progress: N('进度 0-100'),
+    progress: N('进度 0-100', 0, 100),
     milestones: A('里程碑列表'),
     notes: S('备注'),
-    mood: N('用户当时情绪 1-5'),
-    attention: N('用户当时注意力 1-5'),
+    mood: N('用户当时情绪 1-5', 1, 5),
+    attention: N('用户当时注意力 1-5', 1, 5),
     outcome: S('完成情况'),
     review: S('复盘结论'),
   })],
@@ -1013,20 +1070,20 @@ const DEF = {
   /* 计时 */
   timer_start: ['开始真实计时。用户选定具体任务并准备开始时调用，必须传入该任务的标题或 id 以关联记录；若今日恰有一个关键任务且用户明确在推进它，可以省略 task，由程序关联该唯一关键任务。调用后先给出该任务的下一步和计划时长，再提示用户点界面确认按钮；不能声称计时已开始，直到确认执行结果返回。', P({
     task: S('关联任务 id 或标题'),
-    plannedMin: N('计划时长（分钟），用于后续对比'),
+    plannedMin: N('计划时长（分钟），用于后续对比', 1, 1440),
     note: S('不关联任务时的说明'),
   })],
   timer_stop: ['结束计时并算出真实耗时。用户汇报做完、结束、收工时优先用它。**不要用 log_time_entry 代替它** —— 那会把一次真实计时降级成自报。', P({
     note: S('本次备注'),
-    selfReportedMin: N('用户自报的耗时。用于和计时结果对比，不要替代它'),
+    selfReportedMin: N('用户自报的耗时。用于和计时结果对比，不要替代它', 1, 1440),
     outcome: S('完成情况'),
     discard: B('true 表示放弃这次计时（误点），不留记录'),
   })],
   timer_status: ['查看当前计时状态、今日已记录时长、以及用户的预估偏差倾向。用户问"我做了多久了""计时到哪了"，或你要判断他是否习惯低估任务耗时时调用。', P({})],
   log_time_entry: ['整理一笔自报耗时的待保存草稿（用户没走计时器、只是口头报了个时长）；在聊天里确认后才落库。**正在计时就用 timer_stop，不要用这个。** 记录学了什么内容用 log_study。', P({
     task: S('关联任务'),
-    minutes: N('耗时分钟数'),
-    selfReportedMin: N('自报分钟数'),
+    minutes: N('耗时分钟数', 1, 1440),
+    selfReportedMin: N('自报分钟数', 1, 1440),
     note: S('备注'),
     outcome: S('完成情况'),
     startedAt: S('用户报告的开始时间'),
@@ -1035,13 +1092,13 @@ const DEF = {
   list_time_entries: ['查询已有专注时间明细。用户想核对、修正某笔耗时或问任务累计耗时对不对时，先按任务和日期查记录；修改前必须根据任务、日期、起止时间与用户确认目标记录，不得猜选重复记录。确认要修改时用 update_time_entry。', P({
     task: S('任务标题或 id；可省略以查看所有任务'),
     date: S('筛选日期 YYYY-MM-DD；可省略以查看最近记录'),
-    limit: N('最多返回几条，默认 30'),
+    limit: N('最多返回几条，默认 30', 1, 100),
   })],
   update_time_entry: ['修正一笔已有专注时间明细。只在用户明确要求修改记录时调用；必须先用 list_time_entries 找到目标，并传入其记录编号。修改会先在聊天中生成待保存草稿，用户点击保存后才落库。起止时间有改动时按起止时间重算分钟数；只改分钟数时同步结束时间。', P({
     id: S('list_time_entries 返回的唯一记录编号'),
     startedAt: S('新的开始时间，ISO 格式，含时区偏移量，例如 2026-10-13T09:00:00+08:00'),
     endedAt: S('新的结束时间，ISO 格式，含时区偏移量'),
-    actualMin: N('新的实际分钟数；只改分钟数时会从开始时间同步结束时间'),
+    actualMin: N('新的实际分钟数；只改分钟数时会从开始时间同步结束时间', 1, 1440),
     note: S('新的备注'),
     outcome: S('新的完成情况'),
   }, ['id'])],
@@ -1050,7 +1107,7 @@ const DEF = {
   get_ledger: ['查看积分账本和可兑换奖励。用户问"我有多少分""能换什么"时调用。**表是空的时候它会明确说"尚未建立积分账本" —— 如实转告，不要编数字。**', P({ includeRewards: B('是否附带奖励列表，默认 true') })],
   award_points: ['记录积分增减。用户完成了一件事、或你按 §12 规则该给他记分时调用。**这是记账，不代表任何真实惩罚。** 扣分需要他点确认。', P({
     ruleKey: ENUM('按规则加分', POINT_RULES.map(r => r.key)),
-    delta: N('显式增减值。负数表示扣分'),
+    delta: N('显式增减值。负数表示扣分', -10000, 10000),
     reason: S('原因 —— 必填'),
     task: S('关联任务'),
     confirmed: B('是否已经过用户确认'),
@@ -1062,7 +1119,7 @@ const DEF = {
   upsert_reward: ['新建或修改可兑换奖励。用户说"我想拿 X 当奖励""把 X 的分数改一下"时调用。真的去兑换用 redeem_reward。', P({
     id: S('已有奖励 id'),
     name: S('奖励名称'),
-    cost: N('兑换所需积分'),
+    cost: N('兑换所需积分', 0, 1000000),
     note: S('备注'),
     remove: B('true 表示删除这个奖励（同样只在用户明确要求时）'),
   })],
@@ -1071,17 +1128,17 @@ const DEF = {
   /* 打卡 */
   save_checkin: ['整理生活打卡待保存草稿（睡眠/精力/情绪/注意力等），在聊天里确认后才落库。**只在用户自己提到这些数值时调用** —— 不要主动逐项问他、更不要替他填。任何一项都可以跳过。', P({
     date: S('日期 YYYY-MM-DD，默认今天'),
-    sleepHours: N('睡眠时长（小时）'),
+    sleepHours: N('睡眠时长（小时）', 0, 24),
     wakeAt: S('起床时间 HH:MM'),
-    energy: N('当前精力 1-5'),
-    mood: N('当前情绪 1-5'),
-    attention: N('注意力 1-5'),
-    water: N('饮水杯数'),
+    energy: N('当前精力 1-5', 1, 5),
+    mood: N('当前情绪 1-5', 1, 5),
+    attention: N('注意力 1-5', 1, 5),
+    water: N('饮水杯数', 0, 100),
     meals: S('饮食'),
     washed: B('是否洗漱'),
     exercise: S('运动'),
-    studyMin: N('学习分钟数'),
-    workMin: N('工作分钟数'),
+    studyMin: N('学习分钟数', 0, 1440),
+    workMin: N('工作分钟数', 0, 1440),
     meds: S('服药情况 —— 仅当用户主动要求记录时才填，不要主动问'),
     topTask: S('今日最重要的任务'),
     blocker: S('当前最大阻碍'),
@@ -1092,7 +1149,7 @@ const DEF = {
   })],
   get_checkin: ['查看打卡记录。用户问"我最近睡得怎么样""这几天状态如何"时传 days（趋势统计）；只想看某一天就不传 days。', P({
     date: S('查某一天，默认今天'),
-    days: N('查最近 N 天的趋势，例如 14'),
+    days: N('查最近 N 天的趋势，例如 14', 1, 365),
   })],
 
   /* 微习惯与生活导航：浏览器本地全局数据，跨会话保留 */
@@ -1128,7 +1185,7 @@ const DEF = {
   }, ['action'])],
   record_procrastination: ['整理一次拖延记录待保存草稿及其模式分类（A–H），聊天确认后才落库。**你判断出这次拖延属于哪一类时调用**，攒够才能看出他反复踩什么坑。用户自己做完整复盘用 save_review。', P({
     pattern: ENUM('A 任务太大 / B 不知道怎么做 / C 担心做不好 / D 怕开始后停不下来 / E 注意力受干扰 / F 身体疲劳 / G 情绪阻塞 / H 单纯不愿意做',
-      Object.keys(PROCRASTINATION_PATTERNS)),
+      [...Object.keys(PROCRASTINATION_PATTERNS), ...Object.keys(PROCRASTINATION_PATTERNS).map(key => key.toLowerCase())]),
     evidence: S('具体发生了什么'),
     intervention: S('用了什么应对方式'),
     outcome: S('结果'),
@@ -1136,7 +1193,7 @@ const DEF = {
   }, ['pattern'])],
   list_reviews: ['列出历史复盘和拖延模式统计。用户问"我老犯什么毛病""以前复盘过什么"，或你要引用他过去的教训时调用。', P({
     kind: S('按类型筛选'),
-    limit: N('返回条数'),
+    limit: N('返回条数', 1, 100),
   })],
 
   /* 规划 */
@@ -1145,12 +1202,12 @@ const DEF = {
     name: S('规划名称'),
     goal: S('目标'),
     deadline: S('截止时间'),
-    availableMin: N('今天/本周期可用时间（分钟）—— 给了才会做可行性检查'),
+    availableMin: N('今天/本周期可用时间（分钟）—— 给了才会做可行性检查', 0, 1440),
     constraints: S('现实约束'),
     items: A('任务项数组，每项 {text, minAction, estMin}', P({
       text: S('任务内容'),
       minAction: S('最小启动动作'),
-      estMin: N('预计分钟'),
+      estMin: N('预计分钟', 0, 10080),
     })),
     breaks: S('休息安排'),
     risks: A('可能的阻碍'),
@@ -1161,7 +1218,7 @@ const DEF = {
   list_plans: ['列出已有规划。用户问"我之前排的计划呢"时调用。要看某一份的完整条目用 get_plan。', P({ status: S('按状态筛选') })],
   get_plan: ['查看某份规划的详情，或勾掉其中某一项（传 toggleIndex）。用户问"那计划具体是哪几步""第一条做完了"，或你要推动他开始第一项时调用。只想知道有哪些规划，用 list_plans。', P({
     id: S('规划 id，留空取最近的'),
-    toggleIndex: N('要勾选/取消的任务项序号（从 0 开始）'),
+    toggleIndex: N('要勾选/取消的任务项序号（从 0 开始）', 0, 1000),
   })],
 
   /* SOP */
@@ -1171,7 +1228,7 @@ const DEF = {
     scene: S('适用场景'),
     goal: S('执行目标'),
     materials: A('所需材料'),
-    estimateMin: N('预计耗时（分钟）'),
+    estimateMin: N('预计耗时（分钟）', 0, 10080),
     prep: A('执行前准备'),
     steps: A('详细步骤（字符串数组）'),
     blockers: A('常见阻碍'),
@@ -1184,7 +1241,7 @@ const DEF = {
   list_sops: ['列出已有 SOP。用户问"我有哪些流程"时调用。要看某一份的完整步骤用 get_sop。', P({})],
   get_sop: ['查看某份 SOP 的完整内容，或勾掉某一步（传 toggleStep）。用户问"那个流程第一步是什么""我做到哪了"，或你要带他走一遍某个 SOP 时调用。只想知道有哪些 SOP，用 list_sops。', P({
     id: S('SOP id，留空取最近的'),
-    toggleStep: N('要勾选的步骤序号（从 0 开始）'),
+    toggleStep: N('要勾选的步骤序号（从 0 开始）', 0, 1000),
     field: ENUM('勾选哪个列表', ['steps', 'checklist']),
   })],
 
@@ -1205,7 +1262,7 @@ const DEF = {
     learningPreferences: S('适合用户的学习方式、节奏和反馈偏好'),
     availableTime: S('通常可用于学习的时间段与时长'),
     constraints: S('设备、环境、精力、时间等现实限制'),
-    toneLevel: N('表达强度 1-5。用户明确要求调整语气时改'),
+    toneLevel: N('表达强度 1-5。用户明确要求调整语气时改', 1, 5),
     allowProfanity: B('是否允许粗口。用户说不喜欢脏话时设 false'),
     markOnboarded: B('true 表示初始化流程已走完'),
   })],
@@ -1221,28 +1278,28 @@ const DEF = {
   save_memory: ['整理长期记忆的待保存草稿。发现三个月后还有用的事实、偏好、有效策略时调用；聊天确认后才落库。只记一次复盘的结论，用 save_review。', P({
     text: S('一句话说清要记住什么'),
     kind: ENUM('类型', ['fact', 'insight', 'preference', 'summary']),
-    importance: N('1-5，5 表示对理解这个人最关键'),
+    importance: N('1-5，5 表示对理解这个人最关键', 1, 5),
     tags: A('标签'),
   }, ['text'])],
   search_memory: ['检索过去的记录（任务、时间、复盘、打卡、记忆、对话）。**要回忆任何细节前必须先调这个**，不要凭印象编 —— 没查到就说没查到。', P({
     query: S('检索关键词'),
-    limit: N('返回条数，默认 8'),
+    limit: N('返回条数，默认 8', 1, 100),
   }, ['query'])],
-  list_memories: ['列出已积累的长期记忆。你想先看看"关于这个人我已经知道什么"时调用。', P({ limit: N('返回条数') })],
+  list_memories: ['列出已积累的长期记忆。你想先看看"关于这个人我已经知道什么"时调用。', P({ limit: N('返回条数', 1, 100) })],
   forget_memory: ['删除一条过时或错误的长期记忆。**只在用户明确要求删除，或他指正某条记错了时调用** —— 不要自己判断哪条没用就删。', P({ id: S('记忆 id') }, ['id'])],
 
   /* 学习 */
   log_study: ['整理学习活动记录草稿（学了什么、多久、卡在哪）。用户说"我学了""看完了""练了 X"时调用；聊天确认后才落库。只想补一个时长、不记内容的，用 log_time_entry。带 grade 会同时更新复习排期。', P({
     topic: S('知识点名称'),
-    minutes: N('花费分钟数'),
+    minutes: N('花费分钟数', 1, 1440),
     what: S('具体做了什么'),
     blockers: S('卡在哪里'),
     task: S('关联任务'),
-    grade: N('掌握程度自评 0-5'),
+    grade: N('掌握程度自评 0-5', 0, 5),
   }, ['topic'])],
   grade_review: ['整理知识点间隔重复评分待保存草稿。用户复习完并自评掌握程度（"记住了""全忘了"）时调用；聊天确认后才更新。新建知识点用 add_topic。', P({
     topic: S('知识点名称或 id'),
-    grade: N('0 完全忘了 / 1 想不起来 / 2 很吃力 / 3 想起来了 / 4 顺利 / 5 秒答'),
+    grade: N('0 完全忘了 / 1 想不起来 / 2 很吃力 / 3 想起来了 / 4 顺利 / 5 秒答', 0, 5),
     note: S('备注'),
   }, ['topic', 'grade'])],
   add_topic: ['整理新建知识点待保存草稿并纳入复习计划；聊天确认后才创建。用户开始学一个新主题、需要单独跟踪掌握度时调用。**只是记录一次学习用 log_study，它会自动建知识点。**', P({
@@ -1258,6 +1315,9 @@ const DEF = {
   /* 导出与导航 */
   export_records: ['导出结构化 Markdown 记录（自包含，可迁移到别的 AI）。用户说"导出记录""把数据拿出来""我要换个 AI 接着用"时调用。', P({
     includeAll: B('true 表示导出全部历史；默认只含近期记录'),
+  })],
+  export_action_diagnostics: ['导出匿名化的工具调用诊断 JSON，用于人工评测真实模型的工具选择和反馈。只在用户明确要求导出工具诊断/调用评测数据时调用；不包含原话、回复、参数值、会话或记录 ID。与 export_records 的个人数据迁移导出不同。', P({
+    limit: N('最多导出多少条近期操作，默认 300', 1, 300),
   })],
   open_panel: ['帮用户切换到他正在问的那个面板。例如他问积分就打开积分面板，问微习惯或生活导航就打开对应模块。**他只是随口提到某事、并不是想看那个面板时不要调。**', P({
     panel: ENUM('要打开的面板', PANEL_IDS),
@@ -1275,6 +1335,15 @@ export const TOOL_DEFS = Object.entries(DEF).map(([name, [description, parameter
 }));
 
 export const TOOL_NAMES = TOOL_DEFS.map(t => t.function.name);
+export const WRITE_TOOL_NAMES = new Set([
+  'save_task', 'set_task_state', 'set_key_tasks', 'delete_task', 'timer_start', 'timer_stop',
+  'log_time_entry', 'update_time_entry', 'log_study', 'save_checkin',
+  'save_review', 'record_procrastination', 'save_plan',
+  'save_sop', 'save_memory', 'forget_memory', 'update_profile',
+  'add_topic', 'grade_review', 'award_points', 'confirm_points',
+  'upsert_reward', 'redeem_reward', 'manage_micro_habit', 'manage_life_navigation',
+]);
+export const getToolArgumentSchema = name => DEF_MAP[name]?.function?.parameters || null;
 
 const DEF_MAP = Object.fromEntries(TOOL_DEFS.map(d => [d.function.name, d]));
 
@@ -1304,6 +1373,10 @@ export function toolsForTurn() {
    §21「用户拥有最终决定权」靠提示词是保证不了的 —— 模型会顺手替你按下开始键。 */
 
 export const CONFIRM_RULES = {
+  set_key_tasks: {
+    label: '设定今日关键任务',
+    describe: a => `把今天的关键任务设为：${(Array.isArray(a.ids) ? a.ids : [a.ids]).filter(Boolean).join('、') || '（空）'}`,
+  },
   timer_start: {
     label: '开始计时',
     describe: a => `开始计时：${a.task || a.note || '未指定任务'}`
@@ -1312,10 +1385,6 @@ export const CONFIRM_RULES = {
   timer_stop: {
     label: '结束并记录',
     describe: () => '结束当前计时，把真实耗时记下来',
-  },
-  set_key_tasks: {
-    label: '设定今日关键任务',
-    describe: a => `把今天的关键任务设为：${(Array.isArray(a.ids) ? a.ids : [a.ids]).filter(Boolean).join('、') || '（空）'}`,
   },
   suspend_supervision: {
     label: '暂停监督',
@@ -1373,6 +1442,132 @@ function confirmRequirement(name, args) {
   return rule;
 }
 
+export function validateToolArguments(name, args) {
+  const schema = DEF_MAP[name]?.function?.parameters;
+  if (!schema) return `不存在名为「${name}」的工具`;
+
+  function validate(value, rule, path) {
+    if (rule.type === 'object') {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return `${path} 必须是对象`;
+      for (const key of rule.required || []) {
+        if (!Object.hasOwn(value, key)) return `${path}.${key} 为必填项`;
+      }
+      const props = rule.properties || {};
+      for (const [key, child] of Object.entries(value)) {
+        if (!Object.hasOwn(props, key)) {
+          if (rule.additionalProperties === false) return `${path}.${key} 是未定义字段`;
+          continue;
+        }
+        const error = validate(child, props[key], `${path}.${key}`);
+        if (error) return error;
+      }
+    } else if (rule.type === 'array') {
+      if (!Array.isArray(value)) return `${path} 必须是数组`;
+      if (rule.minItems != null && value.length < rule.minItems) return `${path} 项数少于 ${rule.minItems}`;
+      if (rule.maxItems != null && value.length > rule.maxItems) return `${path} 项数超过 ${rule.maxItems}`;
+      if (rule.items) {
+        for (let i = 0; i < value.length; i++) {
+          const error = validate(value[i], rule.items, `${path}[${i}]`);
+          if (error) return error;
+        }
+      }
+    } else if (rule.type === 'string') {
+      if (typeof value !== 'string') return `${path} 必须是字符串`;
+      if (rule.minLength != null && value.length < rule.minLength) return `${path} 长度不足`;
+      if (rule.maxLength != null && value.length > rule.maxLength) return `${path} 长度超过限制`;
+    } else if (rule.type === 'integer') {
+      if (!Number.isInteger(value)) return `${path} 必须是整数`;
+    } else if (rule.type === 'number') {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return `${path} 必须是有限数字`;
+    } else if (rule.type === 'boolean' && typeof value !== 'boolean') {
+      return `${path} 必须是布尔值`;
+    }
+
+    if (rule.enum && !rule.enum.includes(value)) return `${path} 必须是以下值之一：${rule.enum.join('、')}`;
+    if (typeof value === 'number') {
+      if (rule.minimum != null && value < rule.minimum) return `${path} 不能小于 ${rule.minimum}`;
+      if (rule.maximum != null && value > rule.maximum) return `${path} 不能大于 ${rule.maximum}`;
+    }
+    return '';
+  }
+
+  return validate(args, schema, 'arguments');
+}
+
+export async function verifyPersistedResult(store, persisted, args = {}) {
+  if (args.deleted) return { ok: persisted == null, mismatches: persisted == null ? [] : ['record_still_exists'] };
+  if (!persisted) return { ok: false, mismatches: ['record_missing'] };
+  const mismatches = [];
+  const compare = (key, actual, expected, normalize = value => value) => {
+    if (expected === undefined) return;
+    const actualValue = normalize(actual);
+    const expectedValue = normalize(expected);
+    const equal = actualValue && expectedValue && typeof actualValue === 'object' && typeof expectedValue === 'object'
+      ? JSON.stringify(actualValue) === JSON.stringify(expectedValue)
+      : actualValue === expectedValue;
+    if (!equal) mismatches.push(key);
+  };
+
+  if (store === 'tasks') {
+    for (const key of [
+      'title', 'category', 'area', 'goal', 'dueAt', 'plannedStart', 'nextAction', 'blocker',
+      'notes', 'outcome', 'review',
+    ]) compare(key, persisted[key], args[key]);
+    compare('state', persisted.state, args.state, value => String(value || '').toUpperCase());
+    compare('priority', persisted.priority, args.priority, value => String(value || '').toUpperCase());
+    compare('estimateMin', persisted.estimateMin, args.estimateMin, value => Number(value));
+    compare('progress', persisted.progress, args.progress, value => Math.min(100, Math.max(0, Number(value))));
+    compare('milestones', persisted.milestones, args.milestones,
+      value => JSON.stringify(Array.isArray(value) ? value.map(String).filter(Boolean) : String(value || '').split('\n')));
+    compare('mood', persisted.mood, args.mood, value => Math.min(5, Math.max(1, Number(value))));
+    compare('attention', persisted.attention, args.attention, value => Math.min(5, Math.max(1, Number(value))));
+    if (args.id && persisted.id !== args.id && persisted.title !== args.id) mismatches.push('id');
+  } else if (store === 'timeEntries') {
+    const expectedMinutes = args.actualMin ?? args.minutes ?? args.selfReportedMin;
+    if (expectedMinutes !== undefined) {
+      const actualMinutes = args.actualMin != null || args.minutes != null ? persisted.actualMin : persisted.selfReportedMin;
+      compare('minutes', actualMinutes, expectedMinutes, Number);
+    }
+    compare('selfReportedMin', persisted.selfReportedMin, args.selfReportedMin, Number);
+    compare('note', persisted.note, args.note, value => String(value || '').trim());
+    compare('outcome', persisted.outcome, args.outcome, value => String(value || '').trim());
+    compare('startedAt', persisted.startedAt, args.startedAt);
+    compare('endedAt', persisted.endedAt, args.endedAt);
+    if (args.id && persisted.id !== args.id) mismatches.push('id');
+    if (args.task) {
+      const task = persisted.taskId ? await db.tasks.get(persisted.taskId) : null;
+      if (!task || (task.id !== args.task && task.title !== args.task)) mismatches.push('task');
+    }
+  } else if (store === 'profile') {
+    compare('id', persisted.id, 'me');
+    for (const key of Object.keys(args)) if (!['id', 'deleted'].includes(key) && args[key] !== undefined) compare(key, persisted[key], args[key]);
+  } else if (store === 'checkins') {
+    if (args.date) compare('date', persisted.date, args.date);
+    for (const key of Object.keys(args)) if (!['date', 'id', 'deleted', 'medsEnabled'].includes(key) && args[key] !== undefined) compare(key, persisted[key], args[key]);
+  } else if (store === 'meta') {
+    const expected = args.expectedValue || {};
+    for (const [key, value] of Object.entries(expected)) compare(key, persisted.value?.[key], value);
+  } else if (store === 'points' || store === 'rewards' || store === 'reviews' || store === 'plans' || store === 'sops' || store === 'memories' || store === 'topics' || store === 'logs') {
+    if (args.id && persisted.id !== args.id) mismatches.push('id');
+    const ignored = new Set(['id', 'task', 'confirmed', 'date', 'medsEnabled', 'grade', 'kind', 'pattern', 'deleted', 'expectedValue', 'topic']);
+    for (const key of Object.keys(args)) {
+      if (ignored.has(key) || args[key] === undefined || args[key] === null || typeof args[key] === 'object') continue;
+      compare(key, persisted[key], args[key], value => typeof value === 'string' ? value.trim() : value);
+    }
+    if (store === 'reviews' && args.whatHappened !== undefined) compare('facts.whatHappened', persisted.facts?.whatHappened, args.whatHappened, value => String(value || '').trim());
+    if (store === 'reviews' && args.pattern !== undefined) compare('pattern', persisted.pattern, args.pattern, value => String(value || '').toUpperCase());
+    if (store === 'points' && args.delta != null) compare('delta', persisted.delta, args.delta, Number);
+    if (store === 'logs' && args.minutes != null) compare('minutes', persisted.minutes, args.minutes, Number);
+  } else if (store === 'localStorage') {
+    if (args.deleted) return { ok: persisted == null, mismatches: persisted == null ? [] : ['record_still_exists'] };
+    if (!persisted) return { ok: false, mismatches: ['record_missing'] };
+    const expected = args.expected || {};
+    for (const [key, value] of Object.entries(expected)) compare(key, persisted[key], value);
+  }
+
+  return { ok: mismatches.length === 0, mismatches };
+}
+
 /* ══════════════ 执行器 ══════════════ */
 
 /**
@@ -1381,15 +1576,32 @@ function confirmRequirement(name, args) {
  * @param {{confirmed?:boolean, sessionId?:string}} [opts]
  *   confirmed=false 时，命中 CONFIRM_RULES 的动作**不会执行**，只登记成待确认项。
  */
-export async function executeTool(name, rawArgs, { confirmed = false, sessionId = '' } = {}) {
+export async function executeTool(name, rawArgs, { confirmed = false, sessionId = '', operationId = '' } = {}) {
   let args;
   try {
     args = typeof rawArgs === 'string' ? JSON.parse(rawArgs || '{}') : (rawArgs || {});
   } catch (e) {
-    return { content: `参数不是合法 JSON，请重新调用：${e.message}`, error: true, summary: `${name} ✗ JSON` };
+    return {
+      content: `参数不是合法 JSON，请重新调用：${e.message}`,
+      error: true, status: 'failed', operationId, recordId: '', requiresConfirmation: false,
+      errorCode: 'invalid_json', retryable: false, summary: `${name} ✗ JSON`,
+    };
   }
   const fn = IMPL[name];
-  if (!fn) return { content: `不存在名为 "${name}" 的工具。`, error: true, summary: `${name} ✗ 不存在` };
+  if (!fn) return {
+    content: `不存在名为「${name}」的工具。`,
+    error: true, status: 'failed', operationId, recordId: '', requiresConfirmation: false,
+    errorCode: 'unknown_tool', retryable: false, summary: `${name} ✗ 不存在`,
+  };
+  const argumentError = validateToolArguments(name, args);
+  if (argumentError) {
+    return {
+      content: `参数校验失败：${argumentError}`,
+      error: true, status: 'failed', operationId, recordId: '', requiresConfirmation: false,
+      errorCode: 'invalid_arguments', retryable: false,
+      summary: `${name} ✗ 参数`,
+    };
+  }
 
   /* ── 需要用户点确认的动作：先不执行 ── */
   const rule = confirmRequirement(name, args);
@@ -1410,10 +1622,17 @@ export async function executeTool(name, rawArgs, { confirmed = false, sessionId 
       detail,
       danger: rule.danger,
       sessionId,
+      operationId,
     });
     return {
       pending: true,
+      status: 'awaiting_confirmation',
       pendingId: item.id,
+      operationId,
+      recordId: '',
+      requiresConfirmation: true,
+      errorCode: '',
+      retryable: false,
       content: `「${rule.label}」需要用户自己点按钮确认，**尚未执行**。\n`
         + '界面上已经给他生成了一个确认按钮。你的回复要用**提议**的语气'
         + '（例如"点下面的按钮就能开始"），**绝对不能说成已经开始了**。\n'
@@ -1426,9 +1645,15 @@ export async function executeTool(name, rawArgs, { confirmed = false, sessionId 
     if (name === 'save_review' && !String(args.action || '').trim()) {
       return { content: '复盘必须包含一个可以立即执行的动作（action）。没有行动出口的复盘不算完成。', error: true, summary: 'save_review 缺少行动' };
     }
-    await stageChatWrite({ tool: name, args, sessionId });
+    await stageChatWrite({ tool: name, args, sessionId, operationId });
     return {
       chatApproval: true,
+      status: 'awaiting_confirmation',
+      operationId,
+      recordId: '',
+      requiresConfirmation: true,
+      errorCode: '',
+      retryable: false,
       content: `这条记录已整理成待确认草稿，尚未写入正式数据。草稿内容：${JSON.stringify(args)}。`
         + '界面会提供一个保存按钮。请简要说明草稿内容并提示用户点击按钮；不要要求用户再输入「确认保存」。用户也可以回复「取消」。'
         + '不要说成已经保存；确认前不要重试同一条记录。',
@@ -1438,10 +1663,65 @@ export async function executeTool(name, rawArgs, { confirmed = false, sessionId 
 
   try {
     const out = await fn(args);
-    return typeof out === 'string' ? { content: out } : out;
+    const result = typeof out === 'string' ? { content: out } : out;
+    if (result?.error) return {
+      ...result, status: 'failed', operationId,
+      recordId: '', requiresConfirmation: false,
+      errorCode: result.errorCode || 'business_rejected', retryable: Boolean(result.retryable),
+    };
+    if (result?.resultRef) {
+      const { store, id } = result.resultRef;
+      const persisted = store === 'localStorage'
+        ? result.resultRef.namespace === 'microHabit'
+          ? (() => {
+            const habit = listMicroHabits().find(item => item.id === id);
+            if (!habit) return null;
+            const done = getTodayHabitSnapshot().doneIds.has(id);
+            return { ...habit, completed: done };
+          })()
+          : (() => {
+            const item = listLifeNavigation()[result.resultRef.kind]?.find(entry => entry.id === id);
+            return item ? { ...item, value: item.title || item.content || item.text || '' } : null;
+          })()
+        : store === 'meta'
+        ? await db.meta.get(id)
+        : ['tasks', 'timeEntries', 'points', 'rewards', 'checkins', 'reviews', 'plans', 'sops', 'profile', 'memories', 'topics', 'logs'].includes(store) && id
+          ? await db.table(store).get(id)
+          : null;
+      const verification = await verifyPersistedResult(store, persisted, {
+        ...args, id, expectedValue: result.resultRef.expectedValue, expected: result.resultRef.expected,
+        deleted: Boolean(result.resultRef.deleted),
+      });
+      if (!verification.ok) {
+        return {
+          ...result,
+          error: true,
+          status: 'failed',
+          operationId,
+          errorCode: persisted ? 'readback_mismatch' : 'readback_missing',
+          retryable: false,
+          verification,
+          content: `${result.content || name}；写入后读回核验失败（${verification.mismatches.join('、')}），不能确认已保存。`,
+          summary: `${name} · 核验失败`,
+        };
+      }
+      return {
+        ...result, status: 'verified', operationId, recordId: id, entity: { store, id },
+        requiresConfirmation: false, errorCode: '', retryable: false, verification,
+      };
+    }
+    return {
+      ...result, status: 'succeeded', operationId, recordId: '',
+      requiresConfirmation: false, errorCode: '', retryable: false,
+    };
   } catch (e) {
     // 错误回灌给模型让它自己改参数重试，而不是让整个回合失败
-    return { content: `执行 ${name} 失败：${e.message}`, error: true, summary: `${name} ✗ ${e.message}` };
+    const classified = classifyExecutionError(e);
+    return {
+      content: `执行 ${name} 失败：${e.message}`, error: true, status: 'failed',
+      errorCode: classified.errorCode, retryable: classified.retryable, operationId,
+      summary: `${name} ✗ ${e.message}`,
+    };
   }
 }
 

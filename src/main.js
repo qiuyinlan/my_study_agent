@@ -39,6 +39,7 @@ import { detectIntent, ALL_COMMANDS } from './commands.js';
 import { executeTool } from './tools.js';
 import { listPending, removePending, clearPending } from './pending.js';
 import { listChatWrites, removeChatWrites } from './chat-approvals.js';
+import { recordAction } from './operation-plan.js';
 import { debounce } from './util.js';
 
 const chat = createChatView($('#messages'));
@@ -296,8 +297,28 @@ async function refreshPending() {
   renderPendingArea([...draftActions, ...actions], {
     onConfirm: confirmPending,
     onDismiss: async (id) => {
-      if (id.startsWith('chat_approval_')) await removeChatWrites([id]);
-      else await removePending(id);
+      if (id.startsWith('chat_approval_')) {
+        const draft = drafts.find(item => item.id === id);
+        if (draft?.operationId) {
+          await recordAction({
+            sessionId: draft.sessionId || s.id, turnId: draft.operationId.split(':')[0],
+            operationId: draft.operationId, kind: draft.tool, args: draft.args,
+            status: 'cancelled', detail: '用户取消待保存草稿',
+          });
+        }
+        await removeChatWrites([id]);
+      }
+      else {
+        const action = actions.find(item => item.id === id);
+        if (action?.operationId) {
+          await recordAction({
+            sessionId: action.sessionId || s.id, turnId: action.operationId.split(':')[0],
+            operationId: action.operationId, kind: action.tool, args: action.args,
+            status: 'cancelled', detail: '用户取消待确认操作',
+          });
+        }
+        await removePending(id);
+      }
       await refreshPending();
     },
   });
@@ -321,7 +342,17 @@ async function confirmPending(pendingId) {
     const item = (await listChatWrites(s.id)).find(p => p.id === pendingId);
     if (!item) { toast('这条草稿已失效', 'warn'); await refreshPending(); return; }
     try {
-      const out = await executeTool(item.tool, item.args, { confirmed: true, sessionId: item.sessionId || s.id });
+      const out = await executeTool(item.tool, item.args, {
+        confirmed: true, sessionId: item.sessionId || s.id, operationId: item.operationId || '',
+      });
+      if (item.operationId) {
+        await recordAction({
+          sessionId: item.sessionId || s.id, turnId: item.operationId.split(':')[0],
+          operationId: item.operationId, kind: item.tool, args: item.args,
+          status: out.status || (out.error ? 'failed' : 'succeeded'),
+          detail: out.content || '', entity: out.entity || null,
+        });
+      }
       if (out.error) throw new Error(out.content || '保存失败');
       if (item.tool === 'update_profile' && aboutInterview.active) setAboutInterviewActive(false);
       await removeChatWrites([pendingId]);
@@ -348,7 +379,16 @@ async function confirmPending(pendingId) {
     const out = await executeTool(item.tool, item.args, {
       confirmed: true,
       sessionId: item.sessionId || '',
+      operationId: item.operationId || '',
     });
+    if (item.operationId) {
+      await recordAction({
+        sessionId: item.sessionId || '', turnId: item.operationId.split(':')[0],
+        operationId: item.operationId, kind: item.tool, args: item.args,
+        status: out.status || (out.error ? 'failed' : 'succeeded'),
+        detail: out.content || '', entity: out.entity || null,
+      });
+    }
     await removePending(pendingId);
     markPendingDone(pendingId, out.error ? '执行失败' : (out.summary || item.label));
     toast(out.error ? `执行失败：${out.content}` : (out.summary || '已执行'),
@@ -783,13 +823,6 @@ async function boot() {
   showPanel(uiState.currentPanel || 'tasks');
   workspaceMode = uiState.workspaceMode === 'chat' ? 'chat' : 'content';
   applyUiState();
-  void initDailyReviewSync(() => { void refreshAll(); })
-    .then(() => refreshAll())
-    .catch(error => console.warn('[daily-review-sync]', error));
-  void initTaskSync(() => { void refreshAll(); })
-    .catch(error => console.warn('[task-sync-init]', error))
-    .finally(() => { void refreshAll(); });
-
   wireComposer();
   wireTopbar();
   setBusy(false);
@@ -798,13 +831,23 @@ async function boot() {
   profile = await getProfile();
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
 
-  await initPrivateSync(() => { void refreshAll(); });
   profile = await getProfile();
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
 
   await ensureSession();
   await refreshAll();
   await refreshChat();
+
+  // Render browser data first; account checks and cloud merges continue in the background.
+  void initDailyReviewSync(() => { void refreshAll(); })
+    .then(() => refreshAll())
+    .catch(error => console.warn('[daily-review-sync]', error));
+  void initTaskSync(() => { void refreshAll(); })
+    .catch(error => console.warn('[task-sync-init]', error))
+    .finally(() => { void refreshAll(); });
+  void initPrivateSync(() => { void refreshAll(); })
+    .then(() => refreshAll())
+    .catch(error => console.warn('[private-sync-init]', error));
 
   // 镜像权限：浏览器每次重开页面都会重置
   try {
