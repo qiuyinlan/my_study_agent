@@ -90,6 +90,7 @@ const FAMILIES = [
   ['list_topics', 'add_topic', 'grade_review'],
   ['award_points', 'confirm_points', 'redeem_reward', 'upsert_reward'],
   ['timer_start', 'timer_stop', 'timer_status', 'log_time_entry'],
+  ['list_time_entries', 'update_time_entry', 'log_time_entry'],
   ['open_panel', 'export_records', 'get_daily_summary'],
   ['save_plan', 'save_sop', 'list_plans', 'list_sops'],
 ];
@@ -114,6 +115,8 @@ const SHOULD_POINT = [
   ['set_task_state', 'save_task', '只改状态用这个；改其他字段用 save_task'],
   ['list_tasks', 'get_task', '看列表用这个；看单个任务完整字段用 get_task'],
   ['get_task', 'list_tasks', '看单个任务详情用这个；看列表用 list_tasks'],
+  ['list_time_entries', 'update_time_entry', '查已有时间明细用这个；修改一笔已确认记录用 update_time_entry'],
+  ['update_time_entry', 'list_time_entries', '先查出目标记录再修改；不能猜选重复记录'],
 ];
 for (const [name, sibling, advice] of SHOULD_POINT) {
   const t = TOOL_DEFS.find(d => d.function.name === name);

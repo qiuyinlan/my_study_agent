@@ -228,10 +228,12 @@ eq('空日期专注时长为 0', emptyDay.focusedMinutes, 0);
 check('空日期不报错', emptyDay.logs.length === 0);
 
 /* 编辑一条记录 */
-const target = day.entries.find(e => e.source !== 'timer') || day.entries[0];
+const target = day.entries.find(e => e.startedAt) || day.entries[0];
 const edited = await timer.updateTimeEntry(target.id, { actualMin: 42, note: '改过时长' });
 eq('时长已改', edited.actualMin, 42);
 eq('备注已改', edited.note, '改过时长');
+eq('只改分钟数时结束时间同步更新', new Date(edited.endedAt).getTime(),
+  new Date(edited.startedAt).getTime() + 42 * 60000);
 check('**打上了「已修正」标记**（保留人工改过这个事实）', edited.edited === true);
 check('清空了自报差额（人工改过之后它没意义了）', edited.driftMin === null);
 
@@ -258,6 +260,15 @@ const resolved = await timer.updateTimeEntry(target.id, {
   endedAt: new Date(`${todayStr}T10:30:00`).toISOString(),
 });
 eq('留空时长时按起止时间算出 30 分钟', resolved.actualMin, 30);
+const rangeWins = await timer.updateTimeEntry(target.id, {
+  startedAt: new Date(`${todayStr}T11:00:00`).toISOString(),
+  endedAt: new Date(`${todayStr}T11:30:00`).toISOString(),
+  actualMin: 99,
+});
+eq('同时修改起止与分钟数时以明细时间为准', rangeWins.actualMin, 30);
+threw = false;
+try { await timer.updateTimeEntry(target.id, { startedAt: '不是时间' }); } catch { threw = true; }
+check('无效时间格式不会写入', threw);
 
 /* 跨天：日期跟着起止时间走 */
 const crossDay = await timer.updateTimeEntry(target.id, {
@@ -832,6 +843,28 @@ check('计时真的启动了', (await timer.getActiveTimer()) !== null);
 out = await executeTool('timer_stop', '{}', { confirmed: true });
 check('timer_stop 确认后执行成功', !out.error);
 check('给出真实耗时', /\d+ 分钟/.test(out.content));
+
+const timeEditSession = 'smoke-time-entry-edit';
+const duplicateEntryA = await timer.logTimeEntry({ taskId: timerTask.id, minutes: 74, note: '重复记录 A' });
+const duplicateEntryB = await timer.logTimeEntry({ taskId: timerTask.id, minutes: 74, note: '重复记录 B' });
+out = await executeTool('list_time_entries', JSON.stringify({ task: '推导梯度下降', date: util.dateStr() }));
+check('可以查询某任务当天的时间明细', !out.error && out.content.includes(duplicateEntryA.id)
+  && out.content.includes(duplicateEntryB.id));
+check('查询结果含任务名、耗时和起止时间', out.content.includes('推导梯度下降')
+  && out.content.includes('74 分钟') && out.content.includes('至'));
+out = await executeTool('update_time_entry', JSON.stringify({ id: duplicateEntryB.id, actualMin: 25 }),
+  { sessionId: timeEditSession });
+check('修正记录先进入待保存草稿', out.chatApproval === true && !out.error);
+eq('用户保存前原记录不变', (await timer.getTimeEntry(duplicateEntryB.id)).actualMin, 74);
+const timeEditDrafts = await chatApprovals.listChatWrites(timeEditSession);
+const timeEditSaved = await executeTool(timeEditDrafts[0].tool, timeEditDrafts[0].args,
+  { confirmed: true, sessionId: timeEditSession });
+check('点保存后修正成功', !timeEditSaved.error && timeEditSaved.refresh === true);
+eq('只修改指定的重复记录', (await timer.getTimeEntry(duplicateEntryB.id)).actualMin, 25);
+eq('另一条相同耗时记录不受影响', (await timer.getTimeEntry(duplicateEntryA.id)).actualMin, 74);
+eq('修正后任务累计耗时自动重算', (await db.tasks.get(timerTask.id)).actualMin,
+  (await timer.listTimeEntries({ taskId: timerTask.id })).reduce((sum, entry) => sum + (entry.actualMin || 0), 0));
+await chatApprovals.removeChatWrites(timeEditDrafts.map(item => item.id));
 
 const autoTimerTask = await dbm.upsertTask({ title: '唯一关键任务计时测试', state: 'READY', category: 'important' });
 await dbm.setKeyTasks([autoTimerTask.id]);

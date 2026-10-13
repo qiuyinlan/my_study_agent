@@ -258,23 +258,36 @@ export async function updateTimeEntry(id, patch = {}) {
   if (patch.source !== undefined) next.source = patch.source;
   if (patch.startedAt !== undefined) next.startedAt = patch.startedAt || '';
   if (patch.endedAt !== undefined) next.endedAt = patch.endedAt || '';
+  for (const value of [next.startedAt, next.endedAt]) {
+    if (value && !Number.isFinite(new Date(value).getTime())) throw new Error('时间格式无效');
+  }
 
   const explicitMin = patch.actualMin !== undefined;
+  let requestedMin = null;
   if (explicitMin) {
     if (patch.actualMin === null || patch.actualMin === '') {
       next.actualMin = null;
     } else {
       const n = Number(patch.actualMin);
       // 负数必须报错，不能静默钳成 0 —— 不然用户填错了还以为存上了
-      if (!Number.isFinite(n) || n < 0) throw new Error('时长必须是非负数字');
-      next.actualMin = Math.round(n);
+      if (!Number.isFinite(n) || n < 0 || n > 24 * 60) throw new Error('时长必须在 0 到 24 小时之间');
+      requestedMin = Math.round(n);
     }
-  } else if (next.startedAt && next.endedAt) {
-    // 同时有起止时间又没显式给时长，就按时间重算
+  }
+
+  const rangeChanged = patch.startedAt !== undefined || patch.endedAt !== undefined;
+  if (rangeChanged && next.startedAt && next.endedAt) {
+    // 起止时间是明细的来源；同时提交时以时间范围为准，避免字段互相矛盾。
     const a = new Date(next.startedAt).getTime();
     const b = new Date(next.endedAt).getTime();
-    if (Number.isFinite(a) && Number.isFinite(b) && b > a) {
-      next.actualMin = Math.round((b - a) / 60000);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) throw new Error('结束时间必须晚于开始时间');
+    next.actualMin = Math.round((b - a) / 60000);
+  } else if (explicitMin) {
+    next.actualMin = requestedMin;
+    // 只改时长时同步结束时间，保持明细与累计耗时一致。
+    if (requestedMin !== null && next.startedAt) {
+      const startMs = new Date(next.startedAt).getTime();
+      if (Number.isFinite(startMs)) next.endedAt = new Date(startMs + requestedMin * 60000).toISOString();
     }
   }
 

@@ -18,7 +18,7 @@ import { gradeTopic, describeInterval, dueTopics } from './srs.js';
 import { searchMemory } from './memory.js';
 import {
   startTimer, stopTimer, getActiveTimer, cancelTimer, logTimeEntry,
-  listTimeEntries, taskTimeSummary, estimationStats, todayTrackedMinutes,
+  listTimeEntries, updateTimeEntry, taskTimeSummary, estimationStats, todayTrackedMinutes,
 } from './timer.js';
 import {
   awardPoints, getLedger, listPoints, confirmPoints, confirmAllPoints,
@@ -309,6 +309,50 @@ const IMPL = {
       `log_time_entry(${entry.actualMin ?? entry.selfReportedMin}min)`,
       { refresh: true },
     );
+  },
+
+  async list_time_entries({ task = '', date = '', limit = 30 }) {
+    const t = task ? await resolveTask(task) : null;
+    if (task && !t) throw new Error(`找不到任务「${task}」`);
+    const safeLimit = Math.min(100, Math.max(1, Number(limit) || 30));
+    const entries = await listTimeEntries({ taskId: t?.id, date: date || undefined, limit: safeLimit });
+    if (!entries.length) return lock('没有找到符合条件的专注时间记录。', '查看专注记录 · 0 条');
+
+    const rows = await Promise.all(entries.map(async (entry, index) => {
+      const linkedTask = entry.taskId ? await db.tasks.get(entry.taskId) : null;
+      const stamp = value => value
+        ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+        : '未记录';
+      return `${index + 1}. ${linkedTask?.title || '未关联任务'} · ${entry.actualMin ?? '?'} 分钟`
+        + ` · ${stamp(entry.startedAt)} 至 ${stamp(entry.endedAt)}`
+        + `${entry.note ? ` · 备注：${entry.note}` : ''}`
+        + `${entry.edited ? ' · 已修正' : ''}\n   记录编号：${entry.id}`;
+    }));
+    return lock(`找到 ${entries.length} 条专注时间记录：\n${rows.join('\n')}`, `查看专注记录 · ${entries.length} 条`);
+  },
+
+  async update_time_entry(args) {
+    const { id, startedAt, endedAt, actualMin, note, outcome } = args;
+    if (![startedAt, endedAt, actualMin, note, outcome].some(value => value !== undefined)) {
+      throw new Error('请至少提供一个要修改的字段');
+    }
+    const before = await db.timeEntries.get(id);
+    if (!before) throw new Error('找不到这条专注时间记录，请先重新查看记录列表');
+    const patch = {};
+    for (const key of ['startedAt', 'endedAt', 'actualMin', 'note', 'outcome']) {
+      if (args[key] !== undefined) patch[key] = args[key];
+    }
+    const entry = await updateTimeEntry(id, patch);
+    const stamp = value => value
+      ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+      : '未记录';
+    const lines = [
+      `专注记录已修正：${before.actualMin ?? '?'} → ${entry.actualMin} 分钟。`,
+      `起止时间：${stamp(entry.startedAt)} 至 ${stamp(entry.endedAt)}。`,
+      `记录编号：${entry.id}`,
+      '任务累计耗时已根据专注记录重新计算。',
+    ];
+    return lock(lines.join('\n'), `专注记录已修正 · ${entry.actualMin} 分钟`, { refresh: true });
   },
 
   /* ────────── 积分（§十二）────────── */
@@ -988,6 +1032,19 @@ const DEF = {
     startedAt: S('用户报告的开始时间'),
     endedAt: S('用户报告的结束时间'),
   }, ['minutes'])],
+  list_time_entries: ['查询已有专注时间明细。用户想核对、修正某笔耗时或问任务累计耗时对不对时，先按任务和日期查记录；修改前必须根据任务、日期、起止时间与用户确认目标记录，不得猜选重复记录。确认要修改时用 update_time_entry。', P({
+    task: S('任务标题或 id；可省略以查看所有任务'),
+    date: S('筛选日期 YYYY-MM-DD；可省略以查看最近记录'),
+    limit: N('最多返回几条，默认 30'),
+  })],
+  update_time_entry: ['修正一笔已有专注时间明细。只在用户明确要求修改记录时调用；必须先用 list_time_entries 找到目标，并传入其记录编号。修改会先在聊天中生成待保存草稿，用户点击保存后才落库。起止时间有改动时按起止时间重算分钟数；只改分钟数时同步结束时间。', P({
+    id: S('list_time_entries 返回的唯一记录编号'),
+    startedAt: S('新的开始时间，ISO 格式，含时区偏移量，例如 2026-10-13T09:00:00+08:00'),
+    endedAt: S('新的结束时间，ISO 格式，含时区偏移量'),
+    actualMin: N('新的实际分钟数；只改分钟数时会从开始时间同步结束时间'),
+    note: S('新的备注'),
+    outcome: S('新的完成情况'),
+  }, ['id'])],
 
   /* 积分 */
   get_ledger: ['查看积分账本和可兑换奖励。用户问"我有多少分""能换什么"时调用。**表是空的时候它会明确说"尚未建立积分账本" —— 如实转告，不要编数字。**', P({ includeRewards: B('是否附带奖励列表，默认 true') })],
@@ -1209,7 +1266,7 @@ const DEF = {
 
 const CHAT_CONFIRM_TOOLS = new Set([
   'update_profile', 'save_memory', 'save_checkin', 'save_review',
-  'record_procrastination', 'log_study', 'log_time_entry', 'add_topic', 'grade_review',
+  'record_procrastination', 'log_study', 'log_time_entry', 'update_time_entry', 'add_topic', 'grade_review',
 ]);
 
 export const TOOL_DEFS = Object.entries(DEF).map(([name, [description, parameters]]) => ({
