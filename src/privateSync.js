@@ -1,11 +1,11 @@
 import { db, getMeta, setMeta } from './db.js';
+import { getSupabaseClient } from './supabase.js';
 
 const TABLE = 'user_private_records';
 const OWNER_KEY = 'privateSyncOwner';
 const DELETES_KEY = 'privateSyncDeletes';
 const RETENTION_DAYS = 60;
 
-let client = null;
 let session = null;
 let syncing = null;
 let pendingSync = false;
@@ -15,11 +15,7 @@ let syncTimer = null;
 let changeTimeout = null;
 
 function getClient() {
-  if (client) return client;
-  const config = window.APP_CONFIG || {};
-  if (!config.supabaseUrl || !config.supabaseAnonKey || !window.supabase?.createClient) return null;
-  client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-  return client;
+  return getSupabaseClient();
 }
 
 function publish(message, connected = Boolean(session)) {

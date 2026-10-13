@@ -1,13 +1,13 @@
 import { esc, icon, toast } from './ui.js';
 import { dateStr } from './util.js';
 import { pruneMicroHabitHistory } from './microhabit.js';
+import { getSupabaseClient } from './supabase.js';
 
 const LOCAL_PREFIX = 'msa.daily-review.v1:';
 const QUEUE_KEY = 'msa.daily-review-sync.v1';
 const MICRO_HABIT_KEY = 'micro-habit-local-state-v1';
 const FIELDS = ['events', 'review', 'positive'];
 const LABELS = { events: '事件', review: '改进', positive: '肯定' };
-let client = null;
 let session = null;
 let changeHandler = null;
 let flushPromise = null;
@@ -75,11 +75,7 @@ function writeQueue(queue) {
 }
 
 function getClient() {
-  if (client) return client;
-  const config = window.APP_CONFIG || {};
-  if (!config.supabaseUrl || !config.supabaseAnonKey || !window.supabase?.createClient) return null;
-  client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-  return client;
+  return getSupabaseClient();
 }
 
 async function loadSession() {
@@ -201,8 +197,6 @@ export async function signInDailyReview(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw error;
   session = data.session;
-  await syncReviewHistory();
-  await syncMicroHabitState();
   changeHandler?.();
   return getDailyReviewSyncStatus();
 }
@@ -214,8 +208,7 @@ export async function signUpDailyReview(email, password) {
   if (error) throw error;
   session = data.session;
   if (session) {
-    await syncReviewHistory();
-    await syncMicroHabitState();
+    void Promise.all([syncReviewHistory(), syncMicroHabitState()]).finally(() => changeHandler?.());
   }
   changeHandler?.();
   return { ...getDailyReviewSyncStatus(), needsConfirmation: !session };

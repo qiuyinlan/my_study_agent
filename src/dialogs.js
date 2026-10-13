@@ -160,10 +160,10 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
           : action === 'signup'
             ? await signUpDailyReview(email, password)
             : await signOutDailyReview();
-        await refreshPrivateSyncSession();
+        void refreshPrivateSyncSession().catch(error => console.warn('[private-sync-session]', error));
         updateReviewSyncStatus();
         updatePrivateSyncStatus();
-        await updateStorageUsage();
+        void updateStorageUsage();
         if (result?.needsConfirmation) node.textContent = '注册已提交，请按 Supabase 邮件提示完成验证。';
       } catch (error) {
         node.textContent = `连接失败：${error.message}`;

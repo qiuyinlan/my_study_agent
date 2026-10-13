@@ -1,6 +1,6 @@
 import { db, getMeta, setMeta } from './db.js';
+import { getSupabaseClient } from './supabase.js';
 
-let client = null;
 let session = null;
 let onChange = null;
 let syncing = null;
@@ -9,11 +9,7 @@ let taskSyncTimer = null;
 let status = { connected: false, message: '任务保存在本机' };
 
 function getClient() {
-  if (client) return client;
-  const config = window.APP_CONFIG || {};
-  if (!config.supabaseUrl || !config.supabaseAnonKey || !window.supabase?.createClient) return null;
-  client = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-  return client;
+  return getSupabaseClient();
 }
 
 function publish(message, connected = Boolean(session)) {
