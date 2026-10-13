@@ -367,6 +367,9 @@ check('新对话、历史记录和设置使用图标按钮',
 check('设置按钮与聊天操作分组独立',
   $('#btn-settings')?.parentElement !== $('#btn-new-chat')?.parentElement
     && $('.chat-actions')?.contains($('#btn-settings')) === false);
+check('设置图标使用传统齿轮和中心圆孔',
+  $('#btn-settings svg circle')?.getAttribute('cx') === '12'
+    && $('#btn-settings svg circle')?.getAttribute('cy') === '12');
 check('设置始终独立显示，品牌名在顶栏居中容器中',
   $('#btn-settings')?.parentElement === $('.actions') && $('#brand-name')?.parentElement === $('.topbar'));
 check('新建和历史入口只属于 AI 对话操作组',
