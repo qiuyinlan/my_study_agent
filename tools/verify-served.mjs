@@ -4,7 +4,7 @@ const BASE = 'http://127.0.0.1:8000';
 const targets = [
   ['/index.html', ['帕尼尼', 'baseurl-note', 'view-today', 'view-records',
     'dlg-sop', 'dlg-time', 'dlg-log', 'set-tone',
-    'nav-items', 'btn-collapse-nav', 'btn-collapse-panel', 'btn-reveal-panel',
+    'nav-items', 'btn-collapse-topbar', 'btn-collapse-panel', 'btn-reveal-panel',
     'btn-new-chat', 'pending-area']],
   ['/src/persona.js', ['你是「帕尼尼」', '平台实际能力', '暂停监督', '一分钟就能启动',
     '长期记忆（高重要性，常驻）', '必须用户自己点按钮']],

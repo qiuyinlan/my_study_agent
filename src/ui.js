@@ -144,6 +144,7 @@ const ICON_PATHS = {
   compose:  '<path d="M13.5 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-7.5"/><path d="M18.4 2.8a2.1 2.1 0 013 3L12 15.2l-4 1 1-4z"/>',
   history:  '<path d="M3 12a9 9 0 109-9 9.2 9.2 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
   settings: '<path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1-1.8 3.1-.2-.1a1.7 1.7 0 00-1.9.2l-.1.1h-3.6l-.1-.2a1.7 1.7 0 00-1.6-1l-.2.1-3.1-1.8.1-.2a1.7 1.7 0 00-.2-1.9l-.1-.1v-3.6l.2-.1a1.7 1.7 0 001-1.6l-.1-.2 1.8-3.1.2.1a1.7 1.7 0 001.9-.2l.1-.1h3.6l.1.2a1.7 1.7 0 001.6 1l.2-.1 3.1 1.8-.1.2a1.7 1.7 0 00.2 1.9l.1.1V15z"/>',
+  tool: '<path d="M14.5 6.2a4.2 4.2 0 00-5.6 5.6L3.8 17a2.3 2.3 0 103.2 3.2l5.2-5.1a4.2 4.2 0 005.6-5.6l-2.5 2.5-3.2-3.2z"/>',
   points:  '<circle cx="12" cy="9" r="5.6"/><path d="M9 13.8L7.4 21.5l4.6-2.6 4.6 2.6L15 13.8"/>',
   plans:   '<path d="M9 3.6L3.5 5.6v14.8L9 18.4l6 2 5.5-2V3.6l-5.5 2-6-2z"/><path d="M9 3.6v14.8M15 5.6v14.8"/>',
   sops:    '<path d="M5 4.8A2.3 2.3 0 017.3 2.5H19v19H7.3A2.3 2.3 0 015 19.2z"/><path d="M9 7.5h6.5M9 11.5h4.5"/>',
@@ -171,7 +172,22 @@ export function icon(name, cls = '') {
 }
 
 /** 把顶栏/面板上的图标按钮填好（HTML 里只留空按钮，避免手写 SVG 重复） */
-export function initChromeIcons({ navCollapsed = false, panelCollapsed = false, topbarCollapsed = false } = {}) {
+const TOOL_LABELS = {
+  list_tasks: '查看任务', get_task: '查看任务详情', save_task: '保存任务', set_task_state: '更新任务状态',
+  delete_task: '删除任务', set_key_tasks: '设置今日关键任务', timer_start: '开始计时', timer_stop: '结束计时',
+  timer_status: '查看计时', log_time_entry: '记录耗时', get_ledger: '查看积分', award_points: '记录积分',
+  confirm_points: '确认积分', upsert_reward: '管理奖励', redeem_reward: '兑换奖励', save_checkin: '保存打卡',
+  get_checkin: '查看打卡', list_micro_habits: '查看微习惯', manage_micro_habit: '更新微习惯',
+  manage_life_navigation: '更新生活导航', save_review: '保存复盘', record_procrastination: '记录拖延情况',
+  list_reviews: '查看复盘', save_plan: '保存计划', list_plans: '查看计划', get_plan: '查看计划详情',
+  save_sop: '保存流程', list_sops: '查看流程', get_sop: '查看流程详情', get_profile: '查看学习档案',
+  update_profile: '更新学习档案', suspend_supervision: '暂停监督', resume_supervision: '恢复监督',
+  save_memory: '保存长期记忆', search_memory: '搜索记忆', list_memories: '查看记忆', forget_memory: '删除记忆',
+  log_study: '记录学习', grade_review: '更新复习进度', add_topic: '添加知识点', list_topics: '查看知识点',
+  get_daily_summary: '整理今日摘要', export_records: '导出记录', open_panel: '打开页面',
+};
+
+export function initChromeIcons({ navCollapsed = true, panelCollapsed = false } = {}) {
   const set = (sel, name, title) => {
     const el = $(sel);
     if (!el) return;
@@ -181,12 +197,11 @@ export function initChromeIcons({ navCollapsed = false, panelCollapsed = false, 
       el.setAttribute('aria-label', title);
     }
   };
-  set('#btn-collapse-nav', 'sidebar', navCollapsed ? '展开导航' : '收起导航');
   set('#btn-collapse-panel', panelCollapsed ? 'chevron-right' : 'chevron-left',
     panelCollapsed ? '展开面板' : '收起面板');
   set('#btn-reveal-panel', 'chevron-right', '展开面板');
   set('#btn-refresh-panel', 'refresh', '立即刷新');
-  set('#btn-collapse-topbar', 'menu', topbarCollapsed ? '展开顶栏' : '收起顶栏');
+  set('#btn-collapse-topbar', 'menu', navCollapsed ? '打开导航' : '关闭导航');
   set('#btn-new-chat', 'compose', '新对话');
   set('#btn-sessions', 'history', '历史记录');
   set('#btn-settings', 'settings', '设置');
@@ -324,9 +339,11 @@ export function createChatView(container) {
 
   return {
     renderHistory(messages, profile) {
+      const pendingArea = $('#pending-area');
       container.innerHTML = '';
       if (!messages.length) {
         container.appendChild(emptyState(profile));
+        if (pendingArea) container.appendChild(pendingArea);
         return;
       }
       for (const m of messages) {
@@ -337,13 +354,16 @@ export function createChatView(container) {
           who,
         ));
       }
+      if (pendingArea) container.appendChild(pendingArea);
       pinned = true;
       scrollToBottom();
     },
 
     reset(profile) {
+      const pendingArea = $('#pending-area');
       container.innerHTML = '';
       container.appendChild(emptyState(profile));
+      if (pendingArea) container.appendChild(pendingArea);
     },
 
     appendUser(text, profile) {
@@ -370,22 +390,18 @@ export function createChatView(container) {
     toolStart(name, args) {
       if (!current) this.startAssistant();
       const el = document.createElement('div');
-      el.className = 'tool-call';
-      let brief = args;
-      try {
-        const o = JSON.parse(args || '{}');
-        brief = Object.entries(o).map(([k, v]) => `${k}=${String(v).slice(0, 32)}`).join(' ');
-      } catch { /* 保留原文 */ }
-      el.textContent = `🔧 ${name}(${brief})`;
+      el.className = 'tool-call tool-running';
+      el.innerHTML = `${icon('tool')}<span>执行中 · ${esc(TOOL_LABELS[name] || '处理中')}</span>`;
       tools?.appendChild(el);
       scrollToBottom();
     },
 
-    toolResult(name, ok, summary) {
+    toolResult(name, ok, summary, pending = false) {
       if (!tools) return;
       const el = document.createElement('div');
-      el.className = 'tool-call';
-      el.innerHTML = `${ok ? '<span class="ok">✓</span>' : '<span class="err">✗</span>'} ${esc(summary || name)}`;
+      el.className = `tool-call ${pending ? 'tool-pending' : ok ? 'tool-success' : 'tool-error'}`;
+      const status = pending ? '待确认' : ok ? '执行完成' : '执行失败';
+      el.innerHTML = `${icon('tool')}<span>${status} · ${esc(TOOL_LABELS[name] || '处理中')}</span>`;
       tools.appendChild(el);
       scrollToBottom();
     },

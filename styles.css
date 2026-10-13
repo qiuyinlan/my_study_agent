@@ -111,26 +111,22 @@ textarea { resize: vertical; }
 
 /* ── 顶栏 ── */
 .topbar {
-  display: flex; align-items: center; gap: 12px;
+  position: relative; display: flex; align-items: center; gap: 12px;
   height: 52px; padding: 0 14px 0 16px; flex: 0 0 auto;
   background: var(--bg); border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .brand .icon-btn, .chat-actions .icon-btn, .actions .icon-btn { width: 32px; height: 32px; padding: 0; color: var(--fg-2); }
 .brand .icon-btn svg, .chat-actions .icon-btn svg, .actions .icon-btn svg { width: 18px; height: 18px; }
-.brand #btn-new-chat { margin-right: 3px; }
-.brand .mark {
-  width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto;
-  background: var(--accent);
-  display: grid; place-items: center;
+.brand { z-index: 2; }
+#brand-name {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  max-width: min(44vw, 300px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 3px 16px; border: 1px solid rgba(47,125,84,.2); border-radius: 18px;
+  background: rgba(47,125,84,.11); color: var(--accent-hi); font-size: 15px; font-weight: 700;
 }
-.brand .mark::after {
-  content: ''; width: 8px; height: 8px; border-radius: 2px;
-  background: #fff; opacity: .95;
-}
-.brand > span:last-child { font-size: 14.5px; font-weight: 650; letter-spacing: .01em; }
 
-.stats { display: flex; gap: 6px; flex: 1; overflow: hidden; }
+.stats { display: none; }
 .stat {
   display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap;
   font-size: 12px; color: var(--fg-dim);
@@ -143,9 +139,9 @@ textarea { resize: vertical; }
 .stat.danger { background: var(--danger-soft); border-color: var(--danger-line); color: var(--danger); }
 .stat.danger b { color: var(--danger); }
 
-.chat-actions { display: none; align-items: center; gap: 2px; }
+.chat-actions { display: none; align-items: center; gap: 2px; margin-left: auto; margin-right: 10px; }
 .chat-actions button { padding: 5px 10px; font-size: 13px; white-space: nowrap; }
-.actions { display: flex; gap: 2px; align-items: center; margin-left: auto; }
+.actions { display: flex; gap: 2px; align-items: center; margin-left: 0; }
 .actions button { padding: 5px 10px; font-size: 13px; white-space: nowrap; }
 .accent-new { color: var(--accent); font-weight: 600; }
 .accent-new:hover { background: var(--accent-soft); color: var(--accent); }
@@ -175,16 +171,19 @@ textarea { resize: vertical; }
 .timerbar.over .t-clock { color: var(--danger); }
 
 /* ── 主体 ── */
-.body { flex: 1; display: flex; min-height: 0; }
+.body { position: relative; flex: 1; display: flex; min-height: 0; }
 
 /* ═══════════ 左侧导航 ═══════════ */
 
 .nav {
-  width: var(--nav-w); flex: 0 0 auto;
+  position: absolute; z-index: 20; inset: 0 auto 0 0;
+  width: min(25vw, 320px); flex: 0 0 auto;
   background: var(--bg-chrome); border-right: 1px solid var(--line);
   display: flex; flex-direction: column;
   padding: 10px 8px 8px;
-  transition: width .16s ease;
+  box-shadow: 8px 0 24px rgba(20, 45, 31, .12);
+  transform: translateX(0); opacity: 1; visibility: visible;
+  transition: transform .18s ease, opacity .18s ease, visibility .18s;
   overflow: hidden;
 }
 .nav-items { flex: 1; display: flex; flex-direction: column; gap: 1px; }
@@ -215,15 +214,11 @@ textarea { resize: vertical; }
   display: flex; justify-content: flex-end;
 }
 
-/* The top-left menu is the single navigation collapse control. */
+/* The menu opens a narrow overlay drawer; the page keeps its full width. */
 .nav-foot { display: none; }
-
-/* 收起状态：只剩图标 */
 body.nav-collapsed .nav {
-  width: 0; flex-basis: 0; padding: 0; border-right: 0;
-  min-width: 0; visibility: hidden;
+  transform: translateX(-100%); opacity: 0; visibility: hidden;
 }
-body.nav-collapsed .nav > * { display: none; }
 
 /* ═══════════ 面板 ═══════════ */
 
@@ -315,6 +310,7 @@ body.panel-collapsed .panel-reveal { display: flex; }
 
 /* Chat is a separate workspace with its own top bar actions. */
 .app.chat-mode .chat-actions { display: flex; }
+.app.chat-mode .actions { margin-left: 0; }
 .app:not(.chat-mode) .chat-actions { display: none; }
 .app:not(.chat-mode) .chat { display: none; }
 .app:not(.chat-mode) .panel {
@@ -389,13 +385,19 @@ body.panel-collapsed .app:not(.chat-mode) .panel {
 .tools { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .tools:empty { display: none; }
 .tool-call {
-  font: 11.5px/1.5 var(--mono); color: var(--fg-dim);
+  display: flex; align-items: center; gap: 7px;
+  font: 12px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: var(--fg-dim);
   background: var(--bg-sunken); border: 1px solid var(--line-soft);
   border-radius: var(--r-sm); padding: 4px 9px; overflow-wrap: anywhere;
   width: fit-content; max-width: 100%;
 }
 .tool-call .ok { color: var(--ok); font-weight: 700; }
 .tool-call .err { color: var(--danger); font-weight: 700; }
+.tool-call svg { width: 14px; height: 14px; flex: 0 0 auto; vertical-align: middle; }
+.tool-call.tool-success { color: var(--ok); }
+.tool-call.tool-pending { color: var(--warn); }
+.tool-call.tool-error { color: var(--danger); }
+.tool-call.tool-running { color: var(--fg-dim); }
 .cursor {
   display: inline-block; width: 7px; height: 16px; background: var(--accent);
   animation: blink 1s steps(2) infinite; vertical-align: text-bottom; border-radius: 1px;
@@ -677,7 +679,7 @@ body.resizing iframe, body.resizing textarea { pointer-events: none; }
 /* ═══════════ 待确认动作（承诺类工具）═══════════ */
 
 .pending-area { display: none; flex-direction: column; gap: 7px; padding: 0 32px; }
-.pending-area.on { display: flex; padding-bottom: 4px; }
+.pending-area.on { display: flex; padding-bottom: 8px; }
 
 .task-summary { display: flex; align-items: baseline; gap: 9px; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
 .task-summary strong { color: var(--fg); font-size: 13px; }
@@ -1309,4 +1311,55 @@ body {
   .topbar .actions button { font-size: 11px; padding: 5px 6px; }
   .task-date i { display: none; }
   .task-date strong { font-size: 14px; }
+}
+
+/* Navigation opens as a quarter-width overlay and never resizes the page. */
+.topbar {
+  height: 52px; min-height: 52px; flex-wrap: nowrap; gap: 0; padding: 0 12px;
+}
+.brand { flex: 0 0 32px; }
+#brand-name { z-index: 1; }
+.chat-actions {
+  position: absolute; left: 52px; top: 50%; transform: translateY(-50%);
+  margin: 0; flex: 0 0 auto; gap: 1px; z-index: 2;
+}
+.chat-actions button { min-height: 32px; }
+.chat-actions .icon-btn { width: 30px; height: 30px; }
+.topbar .actions {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  width: auto; flex: 0 0 auto; margin: 0; z-index: 2;
+}
+.topbar .actions .icon-btn { width: 32px; height: 32px; }
+.nav {
+  position: absolute; z-index: 20; inset: 0 auto 0 0;
+  width: min(25vw, 320px); min-width: 0; max-width: 320px;
+  flex: 0 0 auto; border-right: 1px solid var(--line); border-bottom: 0;
+  box-shadow: 8px 0 24px rgba(20,45,31,.12);
+  transform: translateX(0); opacity: 1; visibility: visible;
+  transition: transform .18s ease, opacity .18s ease, visibility .18s;
+}
+body.nav-collapsed .nav { width: min(25vw, 320px); max-height: none; min-height: 0; padding: 10px 8px 8px; transform: translateX(-100%); opacity: 0; visibility: hidden; }
+.app.chat-mode .nav { display: flex; }
+.chat-actions .icon-btn { padding: 0; }
+.pending-area { flex: 0 0 auto; }
+#brand-name {
+  max-width: calc(100% - 188px); padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: var(--fg); font-size: 15px;
+}
+@media (max-width: 840px) {
+  .topbar { height: 52px; min-height: 52px; flex-wrap: nowrap; padding: 0 8px; }
+  .nav { position: absolute; inset: 0 auto 0 0; width: min(25vw, 320px); max-width: 320px; }
+  body.nav-collapsed .nav { width: min(25vw, 320px); max-height: none; padding: 8px 5px; }
+  .nav-btn { min-height: 42px; gap: 5px; padding: 7px 5px; }
+  .nav-label { font-size: 11px; overflow-wrap: anywhere; }
+  .topbar .chat-actions { position: absolute; left: 48px; top: 50%; transform: translateY(-50%); flex: 0 0 auto; width: auto; }
+  .topbar .chat-actions button { min-height: 32px; padding: 0 5px; }
+  .topbar .chat-actions .icon-btn { width: 28px; height: 28px; }
+  .topbar .chat-actions #btn-about-me { position: fixed; right: 48px; top: 26px; transform: translateY(-50%); }
+  .topbar .actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: auto; margin: 0; }
+  #brand-name { max-width: calc(100% - 250px); font-size: 14px; }
+  .pending-area { padding: 0 16px; }
+}
+@media (max-width: 380px) {
+  #brand-name { max-width: calc(100% - 236px); }
 }

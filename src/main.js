@@ -54,20 +54,17 @@ let lastCards = [];
 const UI_KEY = 'msa.ui.v1';
 const ABOUT_ME_KEY = 'msa.about-me.v1';
 const WIDTH_LIMITS = {
-  nav: { min: 148, max: 340, varName: '--nav-w' },
   panel: { min: 240, max: 620, varName: '--panel-w' },
 };
-let uiState = { navCollapsed: false, panelCollapsed: false, topbarCollapsed: false, navWidth: null, panelWidth: null };
+let uiState = { navCollapsed: true, panelCollapsed: false, topbarCollapsed: false, navWidth: null, panelWidth: null };
 let workspaceMode = 'content';
 let aboutInterview = { active: false, startedAt: null };
 
 function loadUiState() {
   try {
     uiState = { ...uiState, ...JSON.parse(localStorage.getItem(UI_KEY) || '{}') };
-    if (uiState.navCollapsed || uiState.topbarCollapsed) {
-      uiState.navCollapsed = true;
-      uiState.topbarCollapsed = true;
-    }
+    uiState.navCollapsed = true;
+    uiState.topbarCollapsed = false;
   } catch { /* 用默认值 */ }
   try {
     const saved = JSON.parse(localStorage.getItem(ABOUT_ME_KEY) || '{}');
@@ -118,10 +115,8 @@ function applyUiState({ persist = true } = {}) {
 
 function setNavigationCollapsed(collapsed) {
   const value = Boolean(collapsed);
-  // The menu button controls the whole left navigation chrome. Keep the
-  // legacy state fields in sync so existing saved preferences continue to work.
   uiState.navCollapsed = value;
-  uiState.topbarCollapsed = value;
+  uiState.topbarCollapsed = false;
   applyUiState();
 }
 
@@ -244,6 +239,7 @@ function setWorkspaceMode(mode) {
 }
 
 async function switchPanel(id) {
+  setNavigationCollapsed(true);
   if (id === 'chat') {
     setWorkspaceMode('chat');
     $('#input')?.focus();
@@ -454,7 +450,7 @@ function handleEvent(e) {
     case 'reasoning': chat.appendReasoning(e.text); break;
     case 'tool_start': chat.toolStart(e.name, e.args); break;
     case 'tool_result':
-      chat.toolResult(e.name, e.ok, e.summary);
+      chat.toolResult(e.name, e.ok, e.summary, e.pending);
       // 有些工具（比如更新档案）会带回一句给用户看的回执 ——
       // 否则他说完"叫我小明"，只能自己翻面板确认到底存没存上
       if (e.toast) toast(e.toast, e.ok === false ? 'err' : 'ok');
@@ -736,10 +732,7 @@ function wireTopbar() {
     onChanged: async () => { await refreshChat(); await refreshAll(); },
   });
 
-  /* 折叠：导航和面板各自独立，状态持久化 */
-  $('#btn-collapse-nav').onclick = () => {
-    setNavigationCollapsed(!uiState.navCollapsed);
-  };
+  /* 面板可独立收起 */
   $('#btn-collapse-panel').onclick = () => {
     uiState.panelCollapsed = true;
     applyUiState();
@@ -783,7 +776,6 @@ async function boot() {
   wireComposer();
   wireTopbar();
   setBusy(false);
-  setupResizer('#resize-nav', 'nav');
   setupResizer('#resize-panel', 'panel');
 
   profile = await getProfile();

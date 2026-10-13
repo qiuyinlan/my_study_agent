@@ -627,6 +627,9 @@ check('含糊改做杂事时只中性追问，不直接定性逃避',
 check('工具结果冲突时必须纠正并以结果为准',
   sysFull.includes('工具结果是本轮事实的唯一依据')
     && sysFull.includes('先清楚纠正错误再继续'));
+check('不向用户解释工具回执是自己完成的证据',
+  sysFull.includes('工具回执只用于核对事实')
+    && sysFull.includes('不要向用户强调'));
 check('背景资料和目标有明确的档案字段', sysFull.includes('存入 about') && sysFull.includes('存入 goals'));
 const profileTool = tools.TOOL_DEFS.find(d => d.function.name === 'update_profile');
 check('档案工具 schema 暴露背景和目标字段',

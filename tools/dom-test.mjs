@@ -358,7 +358,7 @@ check('顶栏不再显示返回内容和显示内容文字按钮',
   $('#btn-return-content') === null && !$$('.workspace-switch').length);
 check('聊聊我和历史记录位于对话操作区',
   $('#btn-about-me')?.parentElement === $('.chat-actions')
-    && $('#btn-sessions')?.parentElement === $('.brand')
+    && $('#btn-sessions')?.parentElement === $('.chat-actions')
     && $('#btn-sessions')?.previousElementSibling?.id === 'btn-new-chat');
 check('新对话、历史记录和设置使用图标按钮',
   ['#btn-new-chat', '#btn-sessions', '#btn-settings']
@@ -366,40 +366,42 @@ check('新对话、历史记录和设置使用图标按钮',
 check('设置按钮与聊天操作分组独立',
   $('#btn-settings')?.parentElement !== $('#btn-new-chat')?.parentElement
     && $('.chat-actions')?.contains($('#btn-settings')) === false);
+check('设置始终独立显示，品牌名在顶栏居中容器中',
+  $('#btn-settings')?.parentElement === $('.actions') && $('#brand-name')?.parentElement === $('.topbar'));
+check('新建和历史入口只属于 AI 对话操作组',
+  $('#btn-new-chat')?.parentElement === $('.chat-actions')
+    && $('#btn-sessions')?.parentElement === $('.chat-actions'));
 check('聊天页不再提供内容侧栏展开入口', $('#btn-chat-context') === null);
 click('.nav-btn[data-panel="tasks"]');
 await wait(100);
 check('从 AI 对话选择内容入口后返回任务页面', !$('.app')?.classList.contains('chat-mode') && $('#view-tasks')?.classList.contains('active'));
 check('品牌标识不含 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test($('.brand')?.textContent || ''));
-check('三个折叠控件都有图标',
-  ['#btn-collapse-nav', '#btn-collapse-panel', '#btn-reveal-panel']
+check('面板折叠控件都有图标',
+  ['#btn-collapse-panel', '#btn-reveal-panel']
     .every(sel => $(sel)?.querySelector('svg')));
 check('顶栏折叠按钮也有图标', $('#btn-collapse-topbar')?.querySelector('svg') !== null);
 check('顶栏折叠按钮是两条横线菜单图标',
   $('#btn-collapse-topbar svg path')?.getAttribute('d') === 'M4 8h16M4 16h16');
 click('#btn-collapse-topbar');
 await wait(60);
-check('顶栏可折叠且状态持久化', document.body.classList.contains('topbar-collapsed')
-  && JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').topbarCollapsed === true);
-check('顶栏折叠后按钮标签更新', $('#btn-collapse-topbar')?.getAttribute('aria-label') === '展开顶栏');
-check('收起同时隐藏左侧导航', document.body.classList.contains('nav-collapsed'));
-check('顶栏折叠按钮位于品牌图标之前',
-  $('#btn-collapse-topbar')?.parentElement === $('.brand')
-    && $('#btn-collapse-topbar')?.nextElementSibling?.id === 'btn-new-chat');
+check('菜单打开窄导航抽屉而不折叠顶栏', !document.body.classList.contains('nav-collapsed')
+  && !document.body.classList.contains('topbar-collapsed'));
+check('菜单按钮标签在抽屉打开时更新', $('#btn-collapse-topbar')?.getAttribute('aria-label') === '关闭导航');
+check('设置和居中品牌仍保留', $('#btn-settings')?.isConnected && $('#brand-name')?.isConnected);
 click('#btn-collapse-topbar');
 await wait(60);
-check('顶栏可以重新展开', !document.body.classList.contains('topbar-collapsed'));
+check('菜单可关闭导航抽屉', document.body.classList.contains('nav-collapsed'));
 
-check('初始未折叠', !document.body.classList.contains('nav-collapsed'));
-click('#btn-collapse-nav');
+check('页面初始只显示菜单，不占导航宽度', document.body.classList.contains('nav-collapsed'));
+click('#btn-collapse-topbar');
 await wait(60);
-check('导航可折叠', document.body.classList.contains('nav-collapsed'));
-check('折叠状态写进了 localStorage（刷新能恢复）',
-  JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navCollapsed === true);
-
-click('#btn-collapse-nav');
+check('菜单可以打开导航抽屉', !document.body.classList.contains('nav-collapsed'));
+click('.nav-btn[data-panel="tasks"]');
 await wait(60);
-check('再点可展开', !document.body.classList.contains('nav-collapsed'));
+check('选择导航后抽屉自动关闭并打开任务页', document.body.classList.contains('nav-collapsed')
+  && $('#view-tasks')?.classList.contains('active'));
+check('关闭状态写入 localStorage', JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navCollapsed === true);
+check('导航是抽屉层而不是页面列', $('#nav')?.parentElement === $('.body'));
 
 click('#btn-collapse-panel');
 await wait(60);
@@ -455,8 +457,9 @@ await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(100);
 
 const traces = $$('#messages .tool-call').map(e => e.textContent);
-check('界面显示工具调用轨迹', traces.some(t => t.includes('save_task')), traces.join(' | ').slice(0, 120));
-check('工具执行标记为成功', traces.some(t => t.includes('✓')));
+check('界面显示中文工具执行回执', traces.some(t => t.includes('执行完成 · 保存任务')), traces.join(' | ').slice(0, 120));
+check('工具执行过程带工具图标', $$('#messages .tool-call svg').length > 0);
+check('工具回执不显示英文名或参数', !/save_task|title=|priority=|area=/.test(traces.join(' ')));
 check('工具调用后产出了文本回复',
   ($('#messages').textContent || '').includes('标题和三个小标题'));
 check('本回合发了 2 次请求（工具 + 最终答复）', fetchLog.length - beforeCalls === 2,
@@ -466,6 +469,21 @@ check('请求都带上了工具定义', fetchLog.slice(beforeCalls).every(f => f
 check('**下发的是全量工具（分组下发已移除）**',
   fetchLog.slice(beforeCalls).every(f => f.tools >= 35),
   JSON.stringify(fetchLog.slice(beforeCalls).map(f => f.tools)));
+
+script = [
+  toolStream('log_time_entry', JSON.stringify({ minutes: 13, note: 'DOM 测试耗时记录' })),
+  textStream('耗时已整理成草稿，保存按钮点下前还没有写入。'),
+];
+sendText('记录我刚才花了 13 分钟');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+const timeToolRows = $$('#messages .tool-call').map(el => el.textContent).join(' | ');
+check('耗时草稿回执明确显示待确认', timeToolRows.includes('待确认 · 记录耗时'));
+check('耗时回执不把工具名或参数暴露给用户', !/log_time_entry|minutes=13|note=/.test(timeToolRows));
+click('#pending-area [data-confirm]');
+await waitFor(() => ($('#messages').textContent || '').includes('已记录一笔自报耗时：13 分钟'),
+  { label: '确认后耗时记录写入', timeout: 8000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+check('耗时草稿确认后才显示已记录', ($('#messages').textContent || '').includes('已记录一笔自报耗时：13 分钟'));
 
 await openPanel('tasks');
 check('新建的任务出现在任务面板', ($('#view-tasks')?.textContent || '').includes('写论文引言'));
@@ -602,58 +620,19 @@ check('对话列表能列出多个对话', sessItems.length >= 2, `${sessItems.l
 check('对话列表标记了当前对话', ($('#session-list')?.textContent || '').includes('当前'));
 $('#dlg-session')?.close();
 
-/* ══════════ 10. 拖动改宽度 ══════════ */
+/* ══════════ 10. 面板宽度调整 ══════════ */
 
-console.log('\n[10] 拖动改宽度');
+console.log('\n[10] 面板宽度调整');
 
-check('导航有拖动把手', $('#resize-nav') !== null);
-check('面板有拖动把手', $('#resize-panel') !== null);
+check('固定宽度的导航抽屉没有拖动把手', $('#resize-nav') === null);
+check('内容面板保留拖动把手', $('#resize-panel') !== null);
 
 /** jsdom 没有 PointerEvent，用 MouseEvent 触发同名事件即可 */
 const pointer = (el, type, x) => el.dispatchEvent(
   new window.MouseEvent(type, { clientX: x, clientY: 40, bubbles: true, cancelable: true }),
 );
 
-const navEl = $('#nav');
-const startNavW = navEl.getBoundingClientRect().width;
-const handle = $('#resize-nav');
-
-pointer(handle, 'pointerdown', 200);
-await wait(40);
-check('按下时进入拖动状态', document.body.classList.contains('resizing'));
-pointer(handle, 'pointermove', 260);
-await wait(40);
-const dragged = parseInt(document.documentElement.style.getPropertyValue('--nav-w') || '0', 10);
-check('拖动改变了导航宽度（--nav-w）', dragged > 0, `--nav-w = ${dragged}px`);
-pointer(handle, 'pointerup', 260);
-await wait(80);
-
-check('松手后退出拖动状态', !document.body.classList.contains('resizing'));
-const savedW = JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navWidth;
-check('**宽度已持久化到 localStorage**', typeof savedW === 'number' && savedW > 0, String(savedW));
-
-/* 边界钳制 */
-pointer(handle, 'pointerdown', 200);
-pointer(handle, 'pointermove', 5000);
-pointer(handle, 'pointerup', 5000);
-await wait(80);
-const maxW = JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navWidth;
-check('宽度有上限，不会被拖到失控', maxW <= 340, `${maxW}px`);
-
-pointer(handle, 'pointerdown', 200);
-pointer(handle, 'pointermove', -5000);
-pointer(handle, 'pointerup', -5000);
-await wait(80);
-const minW = JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navWidth;
-check('宽度有下限，不会被拖没', minW >= 148, `${minW}px`);
-
-/* 双击复位 */
-pointer(handle, 'dblclick', 200);
-await wait(80);
-const resetW = JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').navWidth;
-check('双击复位到默认宽度', resetW === null, String(resetW));
-
-/* 面板也能拖 */
+/* 面板宽度持久化 */
 const panelHandle = $('#resize-panel');
 pointer(panelHandle, 'pointerdown', 400);
 pointer(panelHandle, 'pointermove', 480);
@@ -661,7 +640,7 @@ pointer(panelHandle, 'pointerup', 480);
 await wait(80);
 const panelW = JSON.parse(window.localStorage.getItem('msa.ui.v1') || '{}').panelWidth;
 check('面板宽度也能拖动并持久化', typeof panelW === 'number' && panelW > 0, String(panelW));
-check('拖动过程没有报错', errors.length === 0, errors[0]);
+check('面板宽度调整没有报错', errors.length === 0, errors[0]);
 
 /* ══════════ 11. 诊断界面 ══════════ */
 
@@ -852,7 +831,7 @@ check('今日动态渲染成时间线', $$('#view-today .tl-item').length > 0,
 console.log('\n[14] 计时不该由模型替你按开始键');
 
 const pendingArea = $('#pending-area');
-check('对话区和输入框之间有待确认区', pendingArea !== null);
+check('待确认区属于对话滚动区域', pendingArea !== null && pendingArea.parentElement === $('#messages'));
 
 script = [
   toolStream('timer_start', JSON.stringify({ task: '原地更新测试任务', plannedMin: 20 })),
@@ -865,6 +844,11 @@ await wait(600);
 check('**出现确认卡片**', $$('#pending-area .pending-card').length === 1,
   `${$$('#pending-area .pending-card').length} 张`);
 check('待确认区已激活', pendingArea?.classList.contains('on'));
+check('待确认卡片嵌在可滚动对话消息流中', pendingArea?.parentElement === $('#messages')
+  && $('#messages')?.contains(pendingArea));
+check('确认动作回执显示待确认而非完成',
+  $$('#messages .tool-call').some(el => el.textContent.includes('待确认 · 开始计时'))
+    && !$$('#messages .tool-call').some(el => el.textContent.includes('timer_start(')));
 
 const card = $('#pending-area .pending-card');
 check('卡片说明要做什么', (card?.textContent || '').includes('开始计时'), card?.textContent);
@@ -1242,7 +1226,7 @@ check('**模型能自己打开对应面板**', $('#view-points')?.classList.cont
   $('#panel-title')?.textContent);
 check('学习导航高亮同步了', $('.nav-btn[data-panel="learning"]')?.classList.contains('active'));
 check('工具轨迹里能看到 open_panel',
-  $$('#messages .tool-call').some(e => e.textContent.includes('open_panel')));
+  $$('#messages .tool-call').some(e => e.textContent.includes('执行完成 · 打开页面')));
 
 /* 非法面板名要被拒绝，而不是静默失败 */
 script = [
@@ -1253,7 +1237,7 @@ sendText('开个乱七八糟的面板');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(500);
 check('非法面板名被拒绝且给出可读错误',
-  $$('#messages .tool-call').some(e => e.textContent.includes('open_panel ✗')),
+  $$('#messages .tool-call').some(e => e.textContent.includes('执行失败 · 打开页面')),
   $$('#messages .tool-call').slice(-3).map(e => e.textContent).join(' | '));
 
 /* 导出：以前只有正则那一条路，现在有工具 */
@@ -1265,11 +1249,11 @@ sendText('帮我把记录导出来');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(800);
 
-const exportTrace = $$('#messages .tool-call').map(e => e.textContent).filter(t => t.includes('export_records'));
+const exportTrace = $$('#messages .tool-call').map(e => e.textContent).filter(t => t.includes('导出记录'));
 check('**模型能自己触发导出（不再依赖「导出记录」正则）**', exportTrace.length > 0,
   exportTrace.join(' | '));
 check('导出工具执行成功（没有 ✗）',
-  exportTrace.some(t => t.includes('✓') || t.includes('行')), exportTrace.join(' | '));
+  exportTrace.some(t => t.includes('执行完成 · 导出记录')), exportTrace.join(' | '));
 
 /* 而正则那条快路径也还在，且效果一致 */
 await openPanel('today');

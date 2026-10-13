@@ -151,10 +151,12 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
         toolCallCount++;
         usedTools.push(name);
 
-        emit({ type: 'tool_result', name, ok: !out.error, summary: out.summary || name, toast: out.toast || '' });
+        emit({ type: 'tool_result', name, ok: !out.error, summary: out.summary || name,
+          pending: Boolean(out.pending || out.chatApproval), toast: out.toast || '' });
         if (out.pending) {
           emit({ type: 'pending', pendingId: out.pendingId, name, summary: out.summary });
         }
+        if (out.chatApproval) emit({ type: 'pending', name, summary: out.summary });
         if (out.refresh) emit({ type: 'refresh' });
         if (out.suspended !== undefined) emit({ type: 'suspended', value: out.suspended });
         if (out.openPanel) emit({ type: 'open_panel', panel: out.openPanel });
