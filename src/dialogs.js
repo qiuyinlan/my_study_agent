@@ -633,7 +633,7 @@ export async function openSessions({ onChanged } = {}) {
         if (e.target.closest('[data-del]')) return;
         if (id === current) { dlg.close(); return; }
         const s = await db.sessions.get(id);
-        if (!confirm(`切换到「${s.title || '未命名会话'}」？\n\n每个会话有自己的对话上下文和摘要，但任务、打卡、积分、复盘、档案都是共享的。`)) return;
+        if (!(await confirmSessionSwitch(s.title || '未命名会话'))) return;
         await switchSession(id);
         dlg.close();
         toast('已切换会话', 'ok');
@@ -671,6 +671,35 @@ export async function openSessions({ onChanged } = {}) {
 }
 
 /* ══════════════ 档案（§四）═════════════ */
+
+function confirmSessionSwitch(title) {
+  const dlg = $('#dlg-session-switch');
+  $('#session-switch-message').textContent = `切换到「${title}」？每个会话有自己的对话上下文和摘要，但任务、打卡、积分、复盘、档案都是共享的。`;
+
+  return new Promise(resolve => {
+    let settled = false;
+    const confirmButton = $('#btn-session-switch-confirm');
+    const cancelButton = $('#btn-session-switch-cancel');
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      confirmButton.onclick = null;
+      cancelButton.onclick = null;
+      dlg.removeEventListener('cancel', onCancel);
+      dlg.close();
+      resolve(value);
+    };
+    const onCancel = event => {
+      event.preventDefault();
+      finish(false);
+    };
+
+    confirmButton.onclick = () => finish(true);
+    cancelButton.onclick = () => finish(false);
+    dlg.addEventListener('cancel', onCancel);
+    dlg.showModal();
+  });
+}
 
 export async function openProfile({ onChanged } = {}) {
   const dlg = $('#dlg-profile');

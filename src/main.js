@@ -664,8 +664,13 @@ function wireComposer() {
   const form = $('#composer');
   const input = $('#input');
 
+  input.placeholder = '输入消息，Enter 换行，Shift+Enter 发送';
   input.addEventListener('input', autoGrow);
-  // Enter 只换行；发送必须点击按钮。
+  input.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || !e.shiftKey || e.isComposing) return;
+    e.preventDefault();
+    form.requestSubmit();
+  });
 
   form.addEventListener('submit', e => {
     e.preventDefault();

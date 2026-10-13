@@ -71,7 +71,7 @@
         <div class="pending-area" id="pending-area"></div>
       </div>
       <form class="composer" id="composer">
-        <textarea id="input" rows="1"
+        <textarea id="input" rows="1" title="Enter 换行，Shift+Enter 发送"
           placeholder="说点什么…"></textarea>
         <button type="submit" id="btn-send" class="primary">发送</button>
       </form>
@@ -291,6 +291,18 @@
 </dialog>
 
 <!-- ═══════════ 会话 ═══════════ -->
+<dialog id="dlg-session-switch">
+  <div class="dlg">
+    <h3>切换会话</h3>
+    <p class="hint" id="session-switch-message"></p>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button type="button" class="ghost" id="btn-session-switch-cancel">取消</button>
+      <button type="button" class="primary" id="btn-session-switch-confirm">切换</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="dlg-session">
   <div class="dlg">
     <h3>会话</h3>

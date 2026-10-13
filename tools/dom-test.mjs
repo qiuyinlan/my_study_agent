@@ -431,6 +431,18 @@ $('#btn-send').click();
 await waitIdle();
 check('点击发送按钮仍会提交', fetchLog.length > beforeEnter && $$('.msg.user .bubble').at(-1)?.textContent === '通过点击按钮发送');
 
+const beforeShiftEnter = fetchLog.length;
+script = [textStream('Shift+Enter 发送成功')];
+input.value = '快捷键发送测试';
+const shiftEnter = new window.KeyboardEvent('keydown', {
+  key: 'Enter', shiftKey: true, bubbles: true, cancelable: true,
+});
+input.dispatchEvent(shiftEnter);
+await waitIdle();
+check('Shift+Enter 会阻止换行并发送消息', shiftEnter.defaultPrevented
+  && fetchLog.length > beforeShiftEnter
+  && $$('.msg.user .bubble').at(-1)?.textContent === '快捷键发送测试');
+
 const scrollTestChat = document.createElement('section');
 scrollTestChat.className = 'chat';
 const scrollTestMessages = document.createElement('div');
@@ -648,6 +660,20 @@ await wait(220);
 const sessItems = $$('#session-list .task-item');
 check('对话列表能列出多个对话', sessItems.length >= 2, `${sessItems.length} 个`);
 check('对话列表标记了当前对话', ($('#session-list')?.textContent || '').includes('当前'));
+const currentSessionItem = sessItems.find(item => item.textContent.includes('当前'));
+const otherSessionItem = sessItems.find(item => !item.textContent.includes('当前'));
+let nativeConfirmCalls = 0;
+const priorConfirm = globalThis.confirm;
+globalThis.confirm = message => { nativeConfirmCalls++; return priorConfirm(message); };
+otherSessionItem?.click();
+await waitFor(() => $('#dlg-session-switch')?.open, { label: '会话切换应用内确认框' });
+check('切换会话使用应用内确认框而不是网页提示', $('#dlg-session-switch')?.open
+  && nativeConfirmCalls === 0);
+$('#btn-session-switch-cancel')?.click();
+await wait(30);
+const currentAfterCancel = $$('#session-list .task-item').find(item => item.textContent.includes('当前'));
+check('取消切换后保持原会话', currentAfterCancel?.dataset.sess === currentSessionItem?.dataset.sess);
+globalThis.confirm = priorConfirm;
 $('#dlg-session')?.close();
 
 /* ══════════ 10. 面板宽度调整 ══════════ */
