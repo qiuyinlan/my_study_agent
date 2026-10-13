@@ -454,21 +454,23 @@ check('聊天输入框是多行文本框', input instanceof window.HTMLTextAreaE
 
 const beforeCtrlEnter = fetchLog.length;
 input.value = '电脑第二行';
+input.setSelectionRange(2, 2);
 const ctrlEnter = new window.KeyboardEvent('keydown', {
   key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true,
 });
 input.dispatchEvent(ctrlEnter);
-check('电脑 Ctrl+Enter 保留默认换行且不发送', !ctrlEnter.defaultPrevented
-  && input.value === '电脑第二行' && fetchLog.length === beforeCtrlEnter);
+check('电脑 Ctrl+Enter 明确插入换行且不发送', ctrlEnter.defaultPrevented
+  && input.value === '电脑\n第二行' && fetchLog.length === beforeCtrlEnter);
 
 Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
 window.dispatchEvent(new window.Event('resize'));
 const beforeMobileEnter = fetchLog.length;
 input.value = '手机第一行';
+input.setSelectionRange(2, 2);
 const mobileEnter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
 input.dispatchEvent(mobileEnter);
-check('手机 Enter 保留默认换行且不发送', !mobileEnter.defaultPrevented
-  && input.value === '手机第一行' && fetchLog.length === beforeMobileEnter);
+check('手机 Enter 明确插入换行且不发送', mobileEnter.defaultPrevented
+  && input.value === '手机\n第一行' && fetchLog.length === beforeMobileEnter);
 check('手机输入框提示手动点击发送', input.title.includes('点击发送按钮发送'));
 
 script = [textStream('点击发送后收到')];

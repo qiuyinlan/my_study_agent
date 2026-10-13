@@ -655,6 +655,7 @@ function wireComposer() {
   const input = $('#input');
 
   input.placeholder = '说点什么…';
+  input.setAttribute('enterkeyhint', 'enter');
   const updateKeyboardHint = () => {
     input.title = window.innerWidth <= 840
       ? '换行键输入新行，点击发送按钮发送'
@@ -664,7 +665,15 @@ function wireComposer() {
   window.addEventListener('resize', updateKeyboardHint);
   input.addEventListener('input', autoGrow);
   input.addEventListener('keydown', e => {
-    if (e.key !== 'Enter' || e.isComposing || window.innerWidth <= 840 || e.ctrlKey) return;
+    if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+
+    if (window.innerWidth <= 840 || e.ctrlKey) {
+      e.preventDefault();
+      input.setRangeText('\n', input.selectionStart, input.selectionEnd, 'end');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+
     e.preventDefault();
     form.requestSubmit();
   });
