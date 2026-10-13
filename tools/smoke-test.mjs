@@ -690,10 +690,13 @@ check('流程明确「一次只走一段」', sysFull.includes('不要把几段�
 console.log('\n[10] 意图识别与代码快路径');
 
 let it = commands.detectIntent('开始计时');
-it = commands.detectIntent('当前任务：面试题调研\n现在开始，计时 15 分钟');
-check('识别明确的定时启动指令', it.codeAction === 'timer_start', it.codeAction);
-it = commands.detectIntent('开始计时');
-check('识别出代码动作 timer_start', it.codeAction === 'timer_start', it.codeAction);
+eq('计时启动不走会直接执行的代码快路径', it.codeAction, null);
+for (const text of ['开始计时', '给我计时，关联任务：算法题，计划 5 分钟', '帮我把计时开起来', '那就开计时吧', '当前任务：面试题调研\n现在开始，计时 15 分钟']) {
+  check(`明确启动请求进入计时确认：${text}`, commands.isExplicitTimerStartRequest(text));
+}
+for (const text of ['刚刚我是啥时候让你开始计时的', '我没让你计时', '计时器没有弹出开始按钮', '我想问开始计时要点哪里']) {
+  check(`询问或提及计时不触发：${text}`, !commands.isExplicitTimerStartRequest(text));
+}
 
 it = commands.detectIntent('暂停监督，我现在状态很差');
 check('识别出暂停监督', it.codeAction === 'suspend');

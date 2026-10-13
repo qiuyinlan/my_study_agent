@@ -27,7 +27,7 @@ import {
   openTimeEntry, openLogEntry,
 } from './dialogs.js';
 import { scheduleMirror, getMirrorState } from './backup.js';
-import { startTimer, stopTimer, getActiveTimer } from './timer.js';
+import { stopTimer, getActiveTimer } from './timer.js';
 import { confirmAllPoints, redeemReward, getLedger, awardPoints } from './ledger.js';
 import { upsertCheckin, setMedsEnabled } from './records.js';
 import { initDailyReviewSync } from './dailyReview.js';
@@ -372,24 +372,6 @@ async function runCodeAction(action, rawText) {
   const fmt = iso => (iso ? iso.slice(0, 19).replace('T', ' ') : '');
 
   switch (action) {
-    case 'timer_start': {
-      const existing = await getActiveTimer();
-      if (existing) {
-        toast(`已经在计时了（${existing.label}，已过 ${existing.elapsedText}）`, 'warn');
-        return { note: `已有计时在跑（${existing.label}，已过 ${existing.elapsedText}），没有重复启动。`, uiOnly: false };
-      }
-      const plannedMin = Number(rawText.match(/计时\s*(\d+)\s*分钟/i)?.[1]) || null;
-      const task = rawText.match(/当前任务\s*[：:]\s*([^\r\n]+)/i)?.[1]?.trim();
-      const note = task || rawText.slice(0, 40);
-      const t = await startTimer({ note, plannedMin });
-      toast(`计时开始：${t.label}`, 'ok');
-      await refreshAll();
-      return {
-        note: `页面侧已执行 timer_start。开始时间 ${fmt(t.startedAt)}，标签「${t.label}」，${t.plannedMin ? `计划 ${t.plannedMin} 分钟` : '未设计划时长'}。这是真实的墙钟计时，页面刷新也不会丢。`,
-        uiOnly: false,
-      };
-    }
-
     case 'timer_stop': {
       const active = await getActiveTimer();
       if (!active) {

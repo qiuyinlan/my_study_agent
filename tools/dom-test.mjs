@@ -475,9 +475,21 @@ check('模型回复前确认按钮已实际渲染', Boolean(timerPendingCard)
 check('计时确认按钮属于帕尼尼消息并随对话滚动', timerPendingCard?.closest('.pending-message') !== null
   && timerPendingCard?.closest('.messages') === $('#messages'));
 check('用户确认前不会启动计时', !$('#timerbar')?.classList.contains('on'));
+check('计时确认按钮明确写“开始计时”', timerPendingCard?.querySelector('[data-confirm]')?.textContent === '开始计时');
 click('#pending-area [data-dismiss]');
 await waitFor(() => $$('#pending-area .pending-card').length === 0,
   { label: '关闭计时确认卡片' });
+
+script = [
+  toolStream('timer_start', JSON.stringify({ task: '误触发测试任务', plannedMin: 5 })),
+  textStream('你是在问刚才的时间，没有要求开始计时。'),
+];
+const questionTimerStart = fetchLog.length;
+await sendAndWait('刚刚我是啥时候让你开始计时的');
+check('询问过去的计时不会强制 timer_start', !fetchLog.slice(questionTimerStart).some(
+  item => item.toolChoice?.function?.name === 'timer_start'));
+check('模型误调 timer_start 时也不会生成确认卡片', $$('#pending-area .pending-card').length === 0);
+check('询问过去的计时不会启动真实计时', !$('#timerbar')?.classList.contains('on'));
 
 const scrollTestChat = document.createElement('section');
 scrollTestChat.className = 'chat';
@@ -578,10 +590,17 @@ console.log('\n[5] 代码动作（计时）');
 
 await openPanel('today');
 
-script = [textStream('计时开始了。做完回来汇报，我会算出真实耗时。')];
+script = [
+  toolStream('timer_start', JSON.stringify({ note: '面试题调研', plannedMin: 15 })),
+  textStream('按下面的“开始计时”按钮后，计时才会启动。'),
+];
 sendText('当前任务：面试题调研\n目标：弄清目标公司近半年 Agent 开发岗到底考什么\n预计耗时：15 分钟\n状态：DOING\n下一步：打开一个面经平台，搜 "agent 开发 面经"\n完成标准：写下 3 家公司 + 出现频率最高的 5 个问题\n\n现在开始，计时 15 分钟');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(120);
+check('计时动作先生成确认卡片', $('#pending-area [data-confirm]')?.textContent === '开始计时');
+check('点击确认前计时没有运行', !$('#timerbar')?.classList.contains('on'));
+click('#pending-area [data-confirm]');
+await waitFor(() => $('#timerbar')?.classList.contains('on'), { label: '显式确认后启动计时' });
 
 check('**计时条已出现**', $('#timerbar')?.classList.contains('on'), $('#timerbar')?.className);
 const runningTimer = await (await import('../src/timer.js')).getActiveTimer();

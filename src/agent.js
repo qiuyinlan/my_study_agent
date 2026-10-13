@@ -17,6 +17,7 @@ import { buildMessages, compactSession } from './memory.js';
 import { streamChat, ApiError } from './deepseek.js';
 import { toolsForTurn, executeTool } from './tools.js';
 import { listChatWrites, parseChatWriteDecision, removeChatWrites } from './chat-approvals.js';
+import { isExplicitTimerStartRequest } from './commands.js';
 
 const MAX_ITERATIONS = 8;
 
@@ -36,12 +37,6 @@ function shouldForceProfileUpdate(text, messages) {
     .findLast(m => m.role === 'assistant');
   const previousText = String(previousAssistant?.content || '');
   return /[？?]/.test(previousText) && PROFILE_QUESTION_RE.test(previousText);
-}
-
-function shouldForceTimerStart(text) {
-  const value = String(text || '').trim();
-  if (/(?:不要|不用|取消|先不).{0,8}计时/u.test(value)) return false;
-  return /(?:给我|帮我|替我|请).{0,6}计时|(?:开始|启动)计时/u.test(value);
 }
 
 async function autoTitle(session, firstUserText) {
@@ -110,7 +105,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
   let hitLimit = false;
   let aborted = false;
   const usedTools = [];
-  const forceTimerStart = shouldForceTimerStart(userText);
+  const forceTimerStart = isExplicitTimerStartRequest(userText);
 
   try {
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -156,7 +151,13 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
 
         // 错误会被 executeTool 吞成 {error:true} 并回灌给模型，让它自己改参数重试。
         // 承诺类动作（计时、暂停监督、删除…）不会执行，只登记成待确认项等用户点。
-        const out = await executeTool(name, tc.function?.arguments, { sessionId: session.id });
+        const out = name === 'timer_start' && !isExplicitTimerStartRequest(userText)
+          ? {
+              error: true,
+              content: '用户本轮没有明确要求开始计时，不得创建计时确认项，也不得启动计时。请直接回答用户的问题。',
+              summary: '没有明确的计时请求',
+            }
+          : await executeTool(name, tc.function?.arguments, { sessionId: session.id });
         toolCallCount++;
         usedTools.push(name);
 

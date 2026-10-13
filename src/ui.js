@@ -254,7 +254,7 @@ export function renderPendingArea(items, { onConfirm, onDismiss } = {}) {
         ${p.detail ? `<div class="p-detail">${esc(p.detail)}</div>` : ''}
         <div class="p-hint">这是你的决定，点一下才会执行</div>
       </div>
-      <button type="button" class="${p.danger ? 'danger' : 'primary'}" data-confirm="${p.id}">${p.chatDraft ? '保存' : '确认'}</button>
+      <button type="button" class="${p.danger ? 'danger' : 'primary'}" data-confirm="${p.id}">${p.chatDraft ? '保存' : p.tool === 'timer_start' ? '开始计时' : '确认'}</button>
       <button type="button" class="ghost" data-dismiss="${p.id}">不用</button>
     </div>`).join('')}</div>
   </div>`;

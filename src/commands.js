@@ -3,7 +3,7 @@
 // 设计决定：把 §17 的指令分成两类
 //
 //   handler: 'code'  → 纯数据操作。由代码直接跑，零 token、瞬时、不会出错。
-//                      计时、打卡、积分、查看指令、导出。
+//                      结束计时、打卡、积分、查看指令、导出。
 //   handler: 'model' → 需要判断力。注入对应流程段落，交给模型处理。
 //                      小黑屋、拆解、规划、SOP、拖延分析、总结。
 //
@@ -17,7 +17,7 @@ export const COMMAND_GROUPS = [
     group: '执行监督',
     items: [
       { id: 'start_task',   label: '任务启动',   handler: 'model', flows: ['start'], hint: '"我要开始学习了"' },
-      { id: 'timer_start',  label: '开始计时',   handler: 'code',  codeAction: 'timer_start', hint: '记下真实开始时间' },
+      { id: 'timer_start',  label: '开始计时',   handler: 'model', hint: '提出计时确认，等我点击开始' },
       { id: 'timer_stop',   label: '结束计时',   handler: 'code',  codeAction: 'timer_stop',  hint: '算出实际耗时' },
       { id: 'report',       label: '汇报进度',   handler: 'model', flows: ['report'], hint: '"我做完了"' },
       { id: 'check_block',  label: '检查阻碍',   handler: 'model', flows: ['hope'], hint: '"我卡住了"' },
@@ -115,7 +115,6 @@ const CODE_TRIGGERS = [
   // 每条都注明对应的兜底工具，方便核对
   { action: 'suspend',       tool: 'suspend_supervision', re: /暂停监督|先别管我|别催我|暂时别监督|停止监督/i },
   { action: 'unsuspend',     tool: 'resume_supervision',  re: /恢复监督|继续监督|可以催我了|监督恢复/i },
-  { action: 'timer_start',   tool: 'timer_start',         re: /开始计时|计时开始|开始记录时间|现在开始计时|现在开始[，,、\s]*计时\s*\d+\s*分钟/i },
   { action: 'timer_stop',    tool: 'timer_stop',          re: /结束计时|停止计时|计时结束|计时停止/i },
   { action: 'panel_points',  tool: 'open_panel',          re: /查看积分|我的积分|积分多少|积分账本|查看奖励/i },
   { action: 'panel_checkin', tool: 'open_panel',          re: /^生活打卡$|开始打卡|每日打卡/i },
@@ -125,6 +124,16 @@ const CODE_TRIGGERS = [
   { action: 'panel_tasks',   tool: 'open_panel',          re: /^\s*(?:请)?(?:查看|打开)(?:一下)?(?:我的)?任务(?:列表)?[。！!]?\s*$/i },
   { action: 'export_md',     tool: 'export_records',      re: /导出记录|导出数据|导出档案|备份记录/i },
 ];
+
+/** 只有用户明确要求现在启动时，才允许提出计时确认。 */
+export function isExplicitTimerStartRequest(text) {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (/[?？]|(?:什么时候|啥时候|何时|几点|什么时间|是否|是不是|有没有|为什么|为何|怎么|哪次|哪一刻|可以吗|行吗|想问|问一下)/u.test(value)) return false;
+  if (/(?:刚刚|刚才|之前|上次|以前|没让|没有让|不记得|自动开始).{0,20}计时/u.test(value)) return false;
+
+  return /(?:^|[\n。；;])\s*(?:(?:现在|那就|好|请(?:你)?|我想|我要|我准备)\s*)?(?:(?:给我|帮我|替我)(?:(?:把|将)?\s*计时(?:器)?(?:开起来|开(?:启)?|启动|开始)?|\s*(?:开始|启动|开启|开)\s*计时)|(?:开始|启动|开启|开)\s*[,，、]?\s*(?:一个)?\s*(?:\d+\s*分钟)?\s*计时)|^计时开始[。！!]*$/u.test(value);
+}
 
 /**
  * 看一眼用户这句话，判断要不要走代码快路径。
