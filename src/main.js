@@ -654,10 +654,17 @@ function wireComposer() {
   const form = $('#composer');
   const input = $('#input');
 
-  input.placeholder = '输入消息，Enter 换行，Shift+Enter 发送';
+  input.placeholder = '说点什么…';
+  const updateKeyboardHint = () => {
+    input.title = window.innerWidth <= 840
+      ? '换行键输入新行，点击发送按钮发送'
+      : 'Enter 发送，Ctrl+Enter 换行';
+  };
+  updateKeyboardHint();
+  window.addEventListener('resize', updateKeyboardHint);
   input.addEventListener('input', autoGrow);
   input.addEventListener('keydown', e => {
-    if (e.key !== 'Enter' || !e.shiftKey || e.isComposing) return;
+    if (e.key !== 'Enter' || e.isComposing || window.innerWidth <= 840 || e.ctrlKey) return;
     e.preventDefault();
     form.requestSubmit();
   });

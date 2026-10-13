@@ -440,28 +440,42 @@ await sendAndWait('我又拖延了');
 
 const input = $('#input');
 const beforeEnter = fetchLog.length;
-input.value = '第一行';
+script = [textStream('电脑 Enter 已发送')];
+input.value = '电脑 Enter 发送';
 const enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
 input.dispatchEvent(enter);
-check('Enter 不会提交且保留输入内容', !enter.defaultPrevented && input.value === '第一行' && fetchLog.length === beforeEnter);
+await waitIdle();
+check('电脑 Enter 发送消息', enter.defaultPrevented && fetchLog.length > beforeEnter
+  && $$('.msg.user .bubble').at(-1)?.textContent === '电脑 Enter 发送');
 check('聊天输入框是多行文本框', input instanceof window.HTMLTextAreaElement);
+
+const beforeCtrlEnter = fetchLog.length;
+input.value = '电脑第二行';
+const ctrlEnter = new window.KeyboardEvent('keydown', {
+  key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true,
+});
+input.dispatchEvent(ctrlEnter);
+check('电脑 Ctrl+Enter 保留默认换行且不发送', !ctrlEnter.defaultPrevented
+  && input.value === '电脑第二行' && fetchLog.length === beforeCtrlEnter);
+
+Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+window.dispatchEvent(new window.Event('resize'));
+const beforeMobileEnter = fetchLog.length;
+input.value = '手机第一行';
+const mobileEnter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+input.dispatchEvent(mobileEnter);
+check('手机 Enter 保留默认换行且不发送', !mobileEnter.defaultPrevented
+  && input.value === '手机第一行' && fetchLog.length === beforeMobileEnter);
+check('手机输入框提示手动点击发送', input.title.includes('点击发送按钮发送'));
+
 script = [textStream('点击发送后收到')];
-input.value = '通过点击按钮发送';
+input.value = '手机点击发送';
 $('#btn-send').click();
 await waitIdle();
-check('点击发送按钮仍会提交', fetchLog.length > beforeEnter && $$('.msg.user .bubble').at(-1)?.textContent === '通过点击按钮发送');
-
-const beforeShiftEnter = fetchLog.length;
-script = [textStream('Shift+Enter 发送成功')];
-input.value = '快捷键发送测试';
-const shiftEnter = new window.KeyboardEvent('keydown', {
-  key: 'Enter', shiftKey: true, bubbles: true, cancelable: true,
-});
-input.dispatchEvent(shiftEnter);
-await waitIdle();
-check('Shift+Enter 会阻止换行并发送消息', shiftEnter.defaultPrevented
-  && fetchLog.length > beforeShiftEnter
-  && $$('.msg.user .bubble').at(-1)?.textContent === '快捷键发送测试');
+check('手机点击发送按钮才提交消息', fetchLog.length > beforeMobileEnter
+  && $$('.msg.user .bubble').at(-1)?.textContent === '手机点击发送');
+Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+window.dispatchEvent(new window.Event('resize'));
 
 script = [
   toolStream('timer_start', JSON.stringify({ task: '高频算法题单', plannedMin: 5 })),
