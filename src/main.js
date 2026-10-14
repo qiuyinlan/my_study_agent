@@ -41,6 +41,7 @@ import { listPending, removePending, clearPending } from './pending.js';
 import { listChatWrites, removeChatWrites } from './chat-approvals.js';
 import { recordAction } from './operation-plan.js';
 import { debounce } from './util.js';
+import { togglePlanTask, completePlanTaskSlice, movePlanStage, activatePlanStage, planStages } from './docs.js';
 
 const chat = createChatView($('#messages'));
 
@@ -596,6 +597,22 @@ const handlers = {
   onReview: () => openReview({ onChanged: refreshAll }),
   onOpenPlan: id => openPlan(id, { onChanged: refreshAll }),
   onNewPlan: () => openPlan(null, { onChanged: refreshAll }),
+  onTogglePlanTask: async (planId, stageId, taskId, allocatedMin = null) => {
+    const updated = allocatedMin === null
+      ? await togglePlanTask(planId, stageId, taskId)
+      : await completePlanTaskSlice(planId, stageId, taskId, allocatedMin);
+    const stage = planStages(updated).find(item => item.id === stageId);
+    if (stage?.status === 'done') {
+      const ordered = planStages(updated);
+      const next = ordered[ordered.findIndex(item => item.id === stageId) + 1];
+      if (next && window.confirm(`本阶段任务已完成。要切换到下一阶段「${next.name}」吗？`)) {
+        await activatePlanStage(planId, next.id);
+      }
+    }
+    await refreshAll();
+  },
+  onMovePlanStage: async (planId, stageId, offset) => { await movePlanStage(planId, stageId, offset); await refreshAll(); },
+  onActivatePlanStage: async (planId, stageId) => { await activatePlanStage(planId, stageId); await refreshAll(); },
   onOpenSop: id => openSop(id, { onChanged: refreshAll }),
   onNewSop: () => openSop(null, { onChanged: refreshAll }),
   onEditProfile: () => openProfile({ onChanged: refreshAll }),

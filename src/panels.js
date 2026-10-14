@@ -12,7 +12,7 @@ import {
 import { dueTopics } from './srs.js';
 import { getLedger, listRewards, listPoints, POINT_RULES } from './ledger.js';
 import { listCheckins, listReviews, patternStats, PROCRASTINATION_PATTERNS, isMedsEnabled, setMedsEnabled, effectiveStrategies } from './records.js';
-import { listPlans, listSops, PLAN_STATUSES } from './docs.js';
+import { listPlans, listSops, PLAN_STATUSES, PLAN_STAGE_STATUSES, planStages, getActivePlan, setActivePlan, schedulePlanTasks } from './docs.js';
 import { estimationStats, listTimeEntries } from './timer.js';
 import * as daylog from './daylog.js';
 import { renderMicroHabit } from './microhabit.js';
@@ -43,6 +43,9 @@ const PANEL_META = [
   { id: 'reviews', title: '复盘' },
   { id: 'profile', title: '学习档案' },
 ];
+
+let planScheduleBudget = 3;
+let planScheduleResult = null;
 
 export function renderHabits(s, h) {
   const el = $('#view-habits');
@@ -383,7 +386,7 @@ export function renderTasks(s, h) {
   setPanelSub(`待完成 ${pendingImportant}｜${pendingChores}`);
   const out = ['<div class="tasks-workspace">'];
   const sync = getTaskSyncStatus();
-  out.push(`<div class="task-toolbar"><div class="task-summary" aria-label="待完成任务数量"><strong>待完成</strong><span data-pending-important>主要任务 ${pendingImportant}</span><span data-pending-chore>杂事 ${pendingChores}</span></div><span id="task-sync-status" class="task-sync-status">${esc(sync.message)}</span><button type="button" class="primary" data-new-task>＋ 新建任务</button></div>`);
+  out.push(`<div class="task-toolbar"><div class="task-summary" aria-label="待完成任务数量"><strong>待完成</strong><span data-pending-important>主要任务 ${pendingImportant}</span><span data-pending-chore>杂事 ${pendingChores}</span></div><span id="task-sync-status" class="task-sync-status">${esc(sync.message)}</span></div>`);
   const keyTasks = s.tasks.filter(task => s.keyTaskIds.includes(task.id));
   out.push('<section class="task-category"><div class="group-head">今日关键任务 <span class="n">' + keyTasks.length + '</span></div>');
   out.push(keyTasks.length
@@ -392,15 +395,25 @@ export function renderTasks(s, h) {
   out.push('</section>');
   const week = Array.from({ length: 7 }, (_, index) => addDays(dateStr(), index - 6));
   const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
-  const dateCount = date => s.tasks.filter(task => task.dueAt?.slice(0, 10) === date || task.plannedStart?.slice(0, 10) === date).length;
+  const dateCount = date => s.tasks.filter(task => {
+    if (task.state === 'CANCELLED') return false;
+    if (task.state === 'DONE') return task.actualEnd && dateStr(new Date(task.actualEnd)) === date;
+    const scheduled = (task.dueAt || task.plannedStart || '').slice(0, 10);
+    return scheduled && scheduled <= date;
+  }).length;
   out.push(`<div class="task-date-head"><strong>最近七天</strong><label class="task-calendar" title="选择具体日期">${icon('today')}<input type="date" value="${selectedTaskDate}" data-task-date-picker aria-label="选择任务日期"></label></div>`);
   out.push(`<nav class="task-date-strip" aria-label="任务日期">${week.map(date => {
     const d = new Date(`${date}T00:00:00`);
     const today = date === dateStr();
     return `<button type="button" class="task-date ${date === selectedTaskDate ? 'selected' : ''}" data-task-date="${date}" aria-pressed="${date === selectedTaskDate}"><small>${today ? '今天' : `周${shortDays[d.getDay()]}`}</small><strong>${Number(date.slice(-2))}</strong><i>${dateCount(date)} 项</i></button>`;
   }).join('')}</nav>`);
-  const dayTasks = s.tasks.filter(task => task.dueAt?.slice(0, 10) === selectedTaskDate || task.plannedStart?.slice(0, 10) === selectedTaskDate);
-  const unplanned = s.tasks.filter(task => !task.dueAt && !task.plannedStart);
+  const dayTasks = s.tasks.filter(task => {
+    if (task.state === 'CANCELLED') return false;
+    if (task.state === 'DONE') return task.actualEnd && dateStr(new Date(task.actualEnd)) === selectedTaskDate;
+    const scheduled = (task.dueAt || task.plannedStart || '').slice(0, 10);
+    return scheduled && scheduled <= selectedTaskDate;
+  });
+  const unplanned = s.tasks.filter(task => !['DONE', 'CANCELLED'].includes(task.state) && !task.dueAt && !task.plannedStart);
   const appendGroups = (tasks, emptyText) => {
     for (const [category, label] of [['important', '重要事情'], ['chore', '杂事']]) {
       const grouped = tasks.filter(task => (task.category || (['P0', 'P1'].includes(task.priority) ? 'important' : 'chore')) === category);
@@ -426,9 +439,10 @@ export function renderTasks(s, h) {
       </div>`).join('')}</div>`);
   }
   out.push('<section class="task-category task-microhabits"><div class="group-head">微习惯任务 <span class="n">每天</span></div><div data-task-microhabits></div></section>');
+  out.push('<button type="button" class="habit-add-fab task-add-fab" data-new-task aria-label="添加任务" title="添加任务">＋</button>');
   out.push('</div>');
   el.innerHTML = out.join('');
-  renderMicroHabit(el.querySelector('[data-task-microhabits]'), { onChanged: h?.onMicroHabitChanged });
+  renderMicroHabit(el.querySelector('[data-task-microhabits]'), { onChanged: h?.onMicroHabitChanged, showAddButton: false });
   el.querySelector('[data-new-task]')?.addEventListener('click', () => h.onNewTask?.());
   el.querySelectorAll('[data-task-date]').forEach(button => button.addEventListener('click', () => {
     selectedTaskDate = button.dataset.taskDate;
@@ -659,33 +673,83 @@ export async function renderPlans(s, h) {
   const el = $('#view-plans');
   if (!el) return;
   const plans = await listPlans({});
-  setPanelSub(`${plans.length} 个`);
+  const active = await getActivePlan();
+  const selected = plans.find(plan => plan.id === active?.id) || plans[0];
+  const stages = selected ? planStages(selected) : [];
+  const current = selected && (selected.currentStageId
+    ? stages.find(stage => stage.id === selected.currentStageId)
+    : (stages.find(stage => stage.status === 'active') || stages.find(stage => stage.status !== 'done')));
+  const generated = selected && planScheduleResult?.planId === selected.id
+    && planScheduleResult.planUpdatedAt === selected.updatedAt ? planScheduleResult : null;
+  setPanelSub(`${plans.length} 条主线`);
 
-  const out = [`<div class="dlg-actions" style="margin-bottom:12px">
-    <button class="ghost" id="btn-new-plan">＋ 新建规划</button>
+  const out = [`<div class="plan-workspace">
+    <section class="plan-section">
+      <div class="plan-section-head"><h3>主线目标池</h3><button class="ghost" id="btn-new-plan">＋ 新建主线</button></div>
+      ${plans.length ? `<div class="grid2 plan-mainline-fields">
+        <label>当前激活主线<select id="plan-active-select">${plans.map(plan => `<option value="${esc(plan.id)}" ${plan.id === selected?.id ? 'selected' : ''}>${esc(plan.name)}</option>`).join('')}</select></label>
+        <div class="plan-mainline-meta"><strong>${esc(PLAN_STATUSES[selected?.status]?.label || '进行中')}</strong><span>目标大期限：${esc(selected?.deadline || '未设置')}</span><button class="ghost" data-plan-edit="${esc(selected.id)}">编辑主线与阶段</button></div>
+      </div>` : '<div class="empty">还没有主线规划。</div>'}
+    </section>
+    <section class="plan-section">
+      <div class="plan-section-head"><h3>阶段目标与可执行子任务</h3><span class="hint">${current ? `当前激活：${esc(current.name)}` : '选择或创建一条主线开始规划'}</span></div>
+      ${stages.length ? `<ol class="plan-stage-list">${stages.map((stage, index) => {
+        const doneCount = stage.tasks.filter(task => task.done).length;
+        const activeStage = stage.id === current?.id;
+        const dependencies = stage.dependsOn.map(id => stages.find(item => item.id === id)?.name || id).join('、');
+        return `<li class="plan-stage ${activeStage ? 'is-active' : ''}" draggable="true" data-stage-card="${esc(stage.id)}">
+          <div class="plan-stage-head"><div><strong>${index + 1}. ${esc(stage.name || '未命名阶段')}</strong><span class="plan-stage-state">${PLAN_STAGE_STATUSES[stage.status] || PLAN_STAGE_STATUSES[activeStage ? 'active' : 'not_started']}${activeStage ? ' · 当前阶段' : ''}</span></div>
+            <div class="plan-stage-actions"><button class="icon-btn" data-stage-move="${esc(stage.id)}" data-offset="-1" title="上移" ${index === 0 ? 'disabled' : ''}>↑</button><button class="icon-btn" data-stage-move="${esc(stage.id)}" data-offset="1" title="下移" ${index === stages.length - 1 ? 'disabled' : ''}>↓</button>${!activeStage ? `<button class="ghost" data-stage-activate="${esc(stage.id)}">设为当前</button>` : ''}</div>
+          </div>
+          ${dependencies ? `<div class="plan-stage-dependency">依赖：${esc(dependencies)}</div>` : ''}
+          ${stage.exception ? `<div class="plan-stage-dependency">例外：${esc(stage.exception)}</div>` : ''}
+          ${stage.estimate ? `<div class="plan-stage-dependency">周期：${esc(stage.estimate)}</div>` : ''}
+          ${stage.risks.length ? `<div class="plan-risk">风险：${esc(stage.risks.join('、'))}</div>` : ''}
+          <div class="plan-stage-tasks">${stage.tasks.length ? stage.tasks.map(task => `<label class="plan-task"><input type="checkbox" data-plan-task="${esc(task.id)}" data-stage-id="${esc(stage.id)}" ${task.done ? 'checked' : ''}><span class="${task.done ? 'is-done' : ''}">${esc(task.text)}</span>${(task.remainingMin ?? task.estMin) ? `<small>${task.remainingMin !== null && task.remainingMin !== undefined ? `剩余 ${fmtMin(task.remainingMin)}` : fmtMin(task.estMin)}</small>` : ''}<small>优先级 ${task.priority}</small></label>`).join('') : '<span class="hint">暂无子任务</span>'}</div>
+          <small class="hint">${doneCount}/${stage.tasks.length} 个子任务完成</small>
+        </li>`;
+      }).join('')}</ol>` : '<div class="empty">还没有阶段目标。在主线编辑中添加阶段和子任务。</div>'}
+    </section>
+    <section class="plan-section">
+      <div class="plan-section-head"><h3>今日自动规划</h3><div class="plan-schedule-controls"><label>今日可用时长（小时）<input id="plan-day-minutes" type="number" min="0.5" step="0.5" value="${planScheduleBudget}"></label><button class="primary" id="btn-generate-plan" ${!selected ? 'disabled' : ''}>重新生成</button></div></div>
+      ${generated?.complete ? `<div class="plan-schedule-note">当前阶段的子任务都已完成。确认后可以切换到下一阶段。</div>` : ''}
+      ${generated?.tasks?.length ? `<ul class="plan-generated-list">${generated.tasks.map(task => `<li><input type="checkbox" data-plan-task="${esc(task.id)}" data-stage-id="${esc(task.sourceStageId)}" data-allocation="${task.allocatedMin}" title="完成本次分配"><strong>${fmtMin(task.allocatedMin)}</strong><span>${esc(task.text)}${task.partial ? '（完成后保留剩余时长）' : ''}${task.exceptionTask ? ` · 例外提前自「${esc(task.sourceStage)}」` : ''}</span></li>`).join('')}</ul>` : (selected ? '<div class="hint">点击“重新生成”按当前阶段优先级安排今日任务。</div>' : '')}
+      ${selected ? `<div class="plan-schedule-note">依据主线「${esc(selected.name)}」·${esc(generated?.stage?.name || current?.name || '当前阶段')}；规则：${esc(typeof selected.priorities === 'string' ? selected.priorities : '按子任务优先级')}。${generated?.remainingMin > 0 ? `剩余 ${fmtMin(generated.remainingMin)}。` : ''}</div>` : ''}
+    </section>
+    <section class="plan-section">
+      <div class="plan-section-head"><h3>约束与备注</h3>${selected ? `<button class="ghost" data-plan-edit="${esc(selected.id)}">编辑规则</button>` : ''}</div>
+      ${selected ? `<div class="plan-constraints-grid"><div><b>优先级规则</b><p>${esc(selected.priorities || '未设置')}</p></div><div><b>时间约束 / 特殊例外</b><p>${esc(selected.rules || selected.constraints || '未设置')}</p></div><div><b>风险点</b><p>${esc((selected.risks || []).join('、') || '未设置')}</p></div></div>` : '<div class="hint">选择一条主线后显示调度约束。</div>'}
+    </section>
   </div>`];
-
-  if (!plans.length) {
-    out.push('<div class="empty">还没有规划。<br>跟帕尼尼说「帮我安排今天」，或者点上面自己建一个。</div>');
-  } else {
-    for (const p of plans) {
-      const items = p.items || [];
-      const done = items.filter(i => i.done).length;
-      const over = p.feasibility?.feasible === false;
-      out.push(`<div class="doc-item" data-plan="${p.id}">
-        <div class="d-code">${esc(p.code)}</div>
-        <div class="d-name">${esc(p.name)}</div>
-        <div class="d-meta">
-          ${PLAN_STATUSES[p.status]?.label || p.status}　${done}/${items.length} 项
-          ${p.availableMin ? `　预算 ${p.availableMin} 分钟` : ''}
-          ${over ? `　<b style="color:var(--danger)">⚠️ 超时 ${p.feasibility.overBy} 分钟</b>` : ''}
-        </div>
-      </div>`);
-    }
-  }
   el.innerHTML = out.join('');
   $('#btn-new-plan')?.addEventListener('click', () => h.onNewPlan?.());
-  $$('[data-plan]', el).forEach(n => { n.onclick = () => h.onOpenPlan?.(n.dataset.plan); });
+  $('#plan-active-select')?.addEventListener('change', async e => { await setActivePlan(e.target.value); planScheduleResult = null; await renderPlans(s, h); });
+  $$('[data-plan-edit]', el).forEach(n => { n.onclick = () => h.onOpenPlan?.(n.dataset.planEdit); });
+  $$('[data-plan-task]', el).forEach(n => { n.onchange = async () => h.onTogglePlanTask?.(selected.id, n.dataset.stageId, n.dataset.planTask, n.dataset.allocation ? Number(n.dataset.allocation) : null); });
+  $$('[data-stage-move]', el).forEach(n => { n.onclick = () => h.onMovePlanStage?.(selected.id, n.dataset.stageMove, Number(n.dataset.offset)); });
+  $$('[data-stage-activate]', el).forEach(n => { n.onclick = () => h.onActivatePlanStage?.(selected.id, n.dataset.stageActivate); });
+  let draggedStageId = '';
+  $$('[data-stage-card]', el).forEach(card => {
+    card.addEventListener('dragstart', event => {
+      draggedStageId = card.dataset.stageCard;
+      event.dataTransfer?.setData('text/plain', draggedStageId);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragover', event => event.preventDefault());
+    card.addEventListener('drop', async event => {
+      event.preventDefault();
+      const from = stages.findIndex(stage => stage.id === (draggedStageId || event.dataTransfer?.getData('text/plain')));
+      const to = stages.findIndex(stage => stage.id === card.dataset.stageCard);
+      if (from >= 0 && to >= 0 && from !== to) await h.onMovePlanStage?.(selected.id, stages[from].id, to - from);
+      draggedStageId = '';
+    });
+  });
+  $('#plan-day-minutes')?.addEventListener('input', e => { planScheduleBudget = Math.max(0.5, Number(e.target.value) || 0.5); });
+  $('#btn-generate-plan')?.addEventListener('click', async () => {
+    planScheduleBudget = Math.max(0.5, Number($('#plan-day-minutes')?.value) || 0.5);
+    planScheduleResult = { ...schedulePlanTasks(selected, planScheduleBudget * 60), planId: selected.id, planUpdatedAt: selected.updatedAt };
+    await renderPlans(s, h);
+  });
 }
 
 /* ══════════════ SOP ══════════════ */

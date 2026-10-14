@@ -4,11 +4,11 @@ import { $, $$, esc, toast, renderUsage, stateBadge } from './ui.js';
 import { loadSettings, saveSettings, DEFAULTS } from './config.js';
 import { testConnection } from './deepseek.js';
 import {
-  db, listTasks, upsertTask, deleteTask, setTaskState, listTopics, upsertTopic,
+  db, listTasks, upsertTask, deleteTask, listTopics, upsertTopic,
   deleteTopic, getUsage, getMeta, listSessions, switchSession, createSession,
   deleteSession, clearSessionMessages, deleteAllConversations, deleteProfile,
   getProfile, saveProfile, profileCompletion, setKeyTasks,
-  TASK_STATES, PRIORITIES, AREAS, DEFAULT_PROFILE,
+  TASK_STATES, DEFAULT_PROFILE,
 } from './db.js';
 import { GRADES, gradeTopic, describeInterval, dueTopics } from './srs.js';
 import { endOfToday, fmtDateTime, daysUntil, dateStr, toLocalInput, fromLocalInput } from './util.js';
@@ -19,8 +19,9 @@ import {
   exportToDownload, pickImportFile, importFromObject, summarize,
 } from './backup.js';
 import { upsertReward, deleteReward } from './ledger.js';
-import { savePlan, getPlan, deletePlan, listPlans, saveSop, getSop, deleteSop, checkFeasibility, normalizePlanItem } from './docs.js';
+import { savePlan, getPlan, deletePlan, listPlans, saveSop, getSop, deleteSop, checkFeasibility, planStages } from './docs.js';
 import { upsertCheckin } from './records.js';
+import { changeMicroHabit } from './microhabit.js';
 import { runDiagnostics } from './diagnose.js';
 import {
   getDailyReviewSyncStatus, signInDailyReview, signUpDailyReview, signOutDailyReview,
@@ -385,12 +386,6 @@ export async function openBackup({ onChanged }) {
 
 /* ══════════════ 任务 ══════════════ */
 
-const fillSelect = (sel, map, current) => {
-  sel.innerHTML = Object.entries(map)
-    .map(([k, v]) => `<option value="${k}" ${current === k ? 'selected' : ''}>${k} · ${v.label || v}</option>`)
-    .join('');
-};
-
 export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
   const dlg = $('#dlg-task');
   const isNew = !taskId;
@@ -400,19 +395,18 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
   $('#task-title').textContent = isNew ? '新建任务' : '编辑任务';
   $('#task-id').value = task?.id || '';
   $('#task-name').value = task?.title || '';
-  $('#task-goal').value = task?.goal || '';
-  $('#task-state').value = task?.state || 'INBOX';
   $('#task-category').value = task?.category || (isNew || ['P0', 'P1'].includes(task?.priority) ? 'important' : 'chore');
-  fillSelect($('#task-priority'), PRIORITIES, task?.priority || 'P2');
-  fillSelect($('#task-area'), AREAS, task?.area || 'other');
-  $('#task-due').value = task?.dueAt || '';
-  $('#task-planned').value = task?.plannedStart ? task.plannedStart.slice(0, 16) : '';
+  $('#task-due').value = task?.dueAt || (isNew ? dateStr() : '');
   $('#task-estimate').value = task?.estimateMin ?? '';
-  $('#task-next').value = task?.nextAction || '';
-  $('#task-blocker').value = task?.blocker || '';
-  $('#task-progress').value = task?.progress ?? 0;
-  $('#task-outcome').value = task?.outcome || '';
-  $('#task-review').value = task?.review || '';
+  const updateCategoryFields = () => {
+    const isHabit = $('#task-category').value === 'microhabit';
+    $('#task-due').disabled = isHabit;
+    $('#task-estimate').disabled = isHabit;
+    $('[data-task-date-field]').classList.toggle('is-disabled', isHabit);
+    $('[data-task-estimate-field]').classList.toggle('is-disabled', isHabit);
+  };
+  updateCategoryFields();
+  $('#task-category').onchange = updateCategoryFields;
   $('#btn-del-task').style.display = isNew ? 'none' : '';
   $('#btn-key-task').style.display = isNew ? 'none' : '';
 
@@ -438,31 +432,24 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
         const name = $('#task-name').value.trim();
         if (!name) { toast('任务名称不能为空', 'err'); return resolve(false); }
 
-        const newState = $('#task-state').value;
+        const category = $('#task-category').value;
+        if (category === 'microhabit') {
+          if (!isNew) throw new Error('微习惯请在微习惯列表中管理');
+          changeMicroHabit({ action: 'add', title: name });
+          toast('微习惯已添加', 'ok');
+          await onChanged?.();
+          resolve(true);
+          return;
+        }
         const payload = {
           id: task?.id,
           title: name,
-          goal: $('#task-goal').value.trim(),
-          category: $('#task-category').value,
-          priority: $('#task-priority').value,
-          area: $('#task-area').value,
+          category,
           dueAt: $('#task-due').value,
-          plannedStart: $('#task-planned').value,
           estimateMin: $('#task-estimate').value === '' ? null : Number($('#task-estimate').value),
-          nextAction: $('#task-next').value.trim(),
-          blocker: $('#task-blocker').value.trim(),
-          progress: Number($('#task-progress').value) || 0,
-          outcome: $('#task-outcome').value.trim(),
-          review: $('#task-review').value.trim(),
         };
 
         const saved = await upsertTask(payload);
-        if (task && newState !== task.state) {
-          await setTaskState(saved.id, newState);
-        }
-        if (newState === 'BLOCKED' && !payload.blocker) {
-          toast('标成 BLOCKED 但没写阻碍是什么 —— 说清卡在哪才有意义', 'warn');
-        }
         toast(isNew ? '任务已创建' : '任务已保存', 'ok');
         await onChanged?.();
         resolve(true);
@@ -836,50 +823,61 @@ export async function openPlan(planId = null, { onChanged } = {}) {
   $('#plan-title').textContent = plan ? `编辑规划 ${plan.code}` : '新建规划';
   $('#plan-id').value = plan?.id || '';
   $('#plan-name').value = plan?.name || '';
+  $('#plan-status').value = plan?.status === 'draft' ? 'draft' : (plan?.status || 'active');
   $('#plan-available').value = plan?.availableMin ?? '';
   $('#plan-deadline').value = plan?.deadline || '';
   $('#plan-goal').value = plan?.goal || '';
-  $('#plan-items').value = (plan?.items || []).map(i =>
-    [i.text, i.minAction, i.estMin ?? ''].join(' | ').replace(/ \| $/, '')).join('\n');
-  $('#plan-risks').value = (plan?.risks || []).join('、');
+  const initialStages = plan ? planStages(plan) : [{ name: '', status: 'active', tasks: [] }];
+  $('#plan-stages').value = JSON.stringify(initialStages, null, 2);
+  $('#plan-priorities').value = typeof plan?.priorities === 'string'
+    ? plan.priorities : Object.entries(plan?.priorities || {}).map(([key, value]) => `${key}: ${value}`).join('\n');
+  $('#plan-rules').value = plan?.rules || '';
+  $('#plan-constraints').value = plan?.constraints || '';
+  $('#plan-risks').value = (plan?.risks || []).join('\n');
+  $('#plan-items').value = '';
   $('#plan-fallback').value = plan?.fallback || '';
   $('#plan-criteria').value = plan?.doneCriteria || '';
   $('#btn-del-plan').style.display = plan ? '' : 'none';
 
   const updateMeta = () => {
-    const items = parseItems($('#plan-items').value);
-    const check = checkFeasibility({ items, availableMin: $('#plan-available').value });
-    $('#plan-meta').innerHTML = `<span class="hint">${esc(check.verdict)}</span>`;
+    try {
+      const stages = JSON.parse($('#plan-stages').value || '[]');
+      if (!Array.isArray(stages)) throw new Error('阶段必须是数组');
+      const items = stages.flatMap(stage => stage.tasks || []);
+      const check = checkFeasibility({ items, availableMin: $('#plan-available').value });
+      $('#plan-meta').innerHTML = `<span class="hint">${stages.length} 个阶段 · ${items.length} 个子任务。${esc(check.verdict)}</span>`;
+    } catch (error) {
+      $('#plan-meta').innerHTML = `<span class="status err">阶段 JSON 格式有误：${esc(error.message)}</span>`;
+    }
   };
-  const parseItems = text => text.split('\n').map(line => {
-    const parts = line.split('|').map(s => s.trim());
-    if (!parts[0]) return null;
-    return normalizePlanItem({ text: parts[0], minAction: parts[1] || '', estMin: parts[2] || null });
-  }).filter(Boolean);
 
   updateMeta();
-  $('#plan-items').oninput = updateMeta;
-  $('#plan-available').oninput = updateMeta;
+  $('#plan-stages').oninput = updateMeta;
 
   dlg.showModal();
   return new Promise(resolve => {
     const onClose = async () => {
       dlg.removeEventListener('close', onClose);
       $('#btn-del-plan').onclick = null;
-      $('#plan-items').oninput = null;
-      $('#plan-available').oninput = null;
+      $('#plan-stages').oninput = null;
       if (dlg.returnValue !== 'ok') return resolve(false);
       try {
         const name = $('#plan-name').value.trim();
         if (!name) { toast('规划必须有名称', 'err'); return resolve(false); }
+        const stages = JSON.parse($('#plan-stages').value || '[]');
+        if (!Array.isArray(stages)) throw new Error('阶段必须是 JSON 数组');
         const { plan: saved, feasibility } = await savePlan({
           id: plan?.id,
           name,
           goal: $('#plan-goal').value.trim(),
           deadline: $('#plan-deadline').value.trim(),
-          availableMin: $('#plan-available').value === '' ? null : Number($('#plan-available').value),
-          items: parseItems($('#plan-items').value),
-          risks: $('#plan-risks').value.split(/[、,，]/).map(x => x.trim()).filter(Boolean),
+          status: $('#plan-status').value,
+          stages,
+          replaceStages: true,
+          priorities: $('#plan-priorities').value.trim(),
+          rules: $('#plan-rules').value.trim(),
+          constraints: $('#plan-constraints').value.trim(),
+          risks: $('#plan-risks').value.split('\n').map(x => x.trim()).filter(Boolean),
           fallback: $('#plan-fallback').value.trim(),
           doneCriteria: $('#plan-criteria').value.trim(),
         });

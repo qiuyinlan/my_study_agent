@@ -214,40 +214,11 @@
       <input type="text" id="task-name" placeholder="例如：把 CS229 第 3 章学完" required>
     </label>
 
-    <label>想达成什么（越具体，拆解越准）
-      <textarea id="task-goal" rows="2" placeholder="例如：能独立推导并手写实现 logistic regression 的梯度下降"></textarea>
-    </label>
-
-    <input type="hidden" id="task-state" value="INBOX">
+    <label>分类<select id="task-category"><option value="important">任务</option><option value="chore">杂事</option><option value="microhabit">微习惯</option></select></label>
     <div class="grid2">
-      <label>优先级<select id="task-priority"></select></label>
-      <label>领域<select id="task-area"></select></label>
+      <label data-task-date-field>日期<input type="date" id="task-due"></label>
+      <label data-task-estimate-field>预计耗时（分钟，可选）<input type="number" id="task-estimate" min="0" step="5"></label>
     </div>
-    <label>分类<select id="task-category"><option value="important">重要事情</option><option value="chore">杂事</option></select></label>
-    <small class="hint">杂事是简单、随手或不太抵触的事。</small>
-
-    <div class="grid3">
-      <label>截止日期<input type="date" id="task-due"></label>
-      <label>计划开始<input type="datetime-local" id="task-planned"></label>
-      <label>预计耗时（分钟）<input type="number" id="task-estimate" min="0" step="5"></label>
-    </div>
-
-    <label>下一步行动（§6 要求：具体到看着就知道怎么做）
-      <input type="text" id="task-next" placeholder="例如：打开教材翻到 42 页，读第一段">
-    </label>
-
-    <label>当前阻碍（状态为 BLOCKED 时必填）
-      <input type="text" id="task-blocker" placeholder="例如：不知道梯度怎么推，卡在链式法则">
-    </label>
-
-    <div class="grid2">
-      <label>进度 %<input type="number" id="task-progress" min="0" max="100" step="5"></label>
-      <label>完成情况<input type="text" id="task-outcome" placeholder="做成什么样了"></label>
-    </div>
-
-    <label>复盘结论
-      <textarea id="task-review" rows="2" placeholder="下次怎么做得更好"></textarea>
-    </label>
 
     <div class="status" id="task-meta"></div>
 
@@ -408,18 +379,21 @@
   <form method="dialog" class="dlg">
     <h3 id="plan-title">新建规划</h3>
     <input type="hidden" id="plan-id">
-    <label>规划名称<input type="text" id="plan-name" placeholder="例如：考试复习计划" required></label>
+    <label>主线名称<input type="text" id="plan-name" placeholder="例如：计算机实习求职" required></label>
     <div class="grid2">
-      <label>可用时间（分钟）<input type="number" id="plan-available" min="0" step="15" placeholder="例如 240"></label>
-      <label>截止<input type="text" id="plan-deadline" placeholder="例如 两周后 / 6月20日"></label>
+      <label>状态<select id="plan-status"><option value="active">进行中</option><option value="draft">搁置</option><option value="done">完成</option><option value="abandoned">已放弃</option></select></label>
+      <label>目标大期限<input type="text" id="plan-deadline" placeholder="例如 2026-11-15"></label>
     </div>
-    <label>目标<textarea id="plan-goal" rows="2"></textarea></label>
-    <label>任务项（每行一条，格式：内容 | 启动动作 | 预计分钟）
-      <textarea id="plan-items" rows="4" placeholder="推导梯度下降 | 打开笔记翻到上次的公式 | 40"></textarea>
+    <label>整体目标<textarea id="plan-goal" rows="2"></textarea></label>
+    <label>阶段目标（JSON 数组；每阶段含 name、dependsOn、exception、estimate、status、risks、tasks）
+      <textarea id="plan-stages" rows="10" spellcheck="false" placeholder='[{"name":"前置准备","status":"active","estimate":"下周前","risks":["算法基础薄弱"],"tasks":[{"text":"打磨项目","estMin":720,"priority":1}]}]'></textarea>
     </label>
-    <label>可能的阻碍<input type="text" id="plan-risks" placeholder="逗号分隔"></label>
-    <label>备用方案<input type="text" id="plan-fallback"></label>
-    <label>完成标准<input type="text" id="plan-criteria"></label>
+    <label>全局优先级规则<textarea id="plan-priorities" rows="2" placeholder="项目掌握 > 八股 > 高频算法"></textarea></label>
+    <label>时间约束与例外规则<textarea id="plan-rules" rows="2" placeholder="允许前置阶段未全部完成时，下周启动模拟面试"></textarea></label>
+    <label>约束 / 特殊备注<textarea id="plan-constraints" rows="2"></textarea></label>
+    <label>全局风险（每行一条）<textarea id="plan-risks" rows="2"></textarea></label>
+    <input type="hidden" id="plan-available"><input type="hidden" id="plan-items">
+    <input type="hidden" id="plan-fallback"><input type="hidden" id="plan-criteria">
     <div class="status" id="plan-meta"></div>
     <div class="dlg-actions">
       <button type="button" class="ghost danger" id="btn-del-plan">删除</button>
@@ -524,8 +498,9 @@
 
 <div class="toast-wrap" id="toasts"></div>
 
-<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script defer src="supabase-config.js"></script>
+<!-- Supabase 必须先于主模块加载；否则慢网络下登录按钮会先执行。 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2';"></script>
+<script src="supabase-config.js"></script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

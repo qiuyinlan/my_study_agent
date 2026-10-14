@@ -9,7 +9,7 @@
 // §3「不虚构」在代码层的落点：**表为空就注入"未建立"，绝不给默认值让模型圆。**
 
 import {
-  db, getProfile, listTasks, listTopics, recentLogs, getKeyTasks,
+  db, getMeta, getProfile, listTasks, listTopics, recentLogs, getKeyTasks,
   ACTIVE_STATES, TASK_STATES, PRIORITIES, AREAS, profileCompletion,
   PROFILE_LABELS as DB_PROFILE_LABELS, notifyPrivateDataChanged,
 } from './db.js';
@@ -366,6 +366,19 @@ export async function buildMessages({ sessionId, userText = '', codeNote = '' })
 
   const plans = (await db.plans.toArray()).filter(p => p.status === 'active' || p.status === 'draft');
   state.overloadedPlans = plans.filter(p => p.feasibility?.feasible === false);
+  const activePlanId = await getMeta('activePlanId', '');
+  const activePlan = plans.find(p => p.id === activePlanId) || plans.find(p => p.status === 'active') || plans[0] || null;
+  const planningContext = activePlan ? (() => {
+    const stages = Array.isArray(activePlan.stages) ? activePlan.stages : [];
+    const current = stages.find(s => s.id === activePlan.currentStageId)
+      || stages.find(s => s.status === 'active') || stages.find(s => s.status !== 'done');
+    return [
+      `当前主线：${activePlan.name}${activePlan.deadline ? `（目标期限：${activePlan.deadline}）` : ''}`,
+      `全局优先级：${activePlan.priorities || '未设置'}`,
+      `时间约束与例外：${activePlan.rules || activePlan.constraints || '未设置'}`,
+      ...stages.map((stage, index) => `${index + 1}. ${stage.name} [${stage.status}]${stage.id === current?.id ? ' ← 当前激活阶段' : ''}${stage.dependsOn?.length ? `；依赖：${stage.dependsOn.join('、')}` : ''}\n${(stage.tasks || []).map(task => `  - [${task.done ? 'x' : ' '}] ${task.text}（优先级 ${task.priority || 3}${task.estMin ? `；${task.estMin} 分钟` : ''}）`).join('\n')}`),
+    ].join('\n');
+  })() : '尚无激活的主线规划。';
 
   /* ── 数据块 ── */
   const blocks = {
@@ -379,6 +392,7 @@ export async function buildMessages({ sessionId, userText = '', codeNote = '' })
       // 页面侧刚执行的确定性操作 —— 这是事实，不是模型推测的时间
       codeNote ? `\n## ⚙️ 本轮代码已执行（这是事实，直接采信，不要自己推算时间）\n${codeNote}` : '',
       `\n## 需要处理的信号\n${fmtSignals(state)}`,
+      `\n## 主线与阶段规划（调度依据）\n${planningContext}\n空闲时只从当前激活阶段选择未完成子任务；遵守优先级和例外规则，不跨阶段派发。更新已有规划时只改用户明确提到的部分，保留其他阶段、任务和完成状态。`,
       `\n## 今天的打卡\n${fmtCheckinBlock(checkin, medsEnabled)}`,
       `\n## 到期复习（学习模块）\n${fmtDueBlock(due, topics)}`,
       `\n## 拖延模式与身心趋势\n${fmtPatternBlock(patterns, checkinTrend)}`,

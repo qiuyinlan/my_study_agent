@@ -225,7 +225,7 @@ export function bindTodayJournal(root, { onChanged, onCheckinSave, onMedsToggle 
   });
 }
 
-export function renderMicroHabit(el, { onChanged } = {}) {
+export function renderMicroHabit(el, { onChanged, showAddButton = true } = {}) {
   const state = loadMicroHabitState();
   const active = state.habits.filter(h => h.active !== false).sort((a, b) => a.order - b.order);
   const doneIds = new Set(Array.isArray(state.completions[today()]) ? state.completions[today()] : []);
@@ -242,8 +242,7 @@ export function renderMicroHabit(el, { onChanged } = {}) {
         <form class="habit-edit-form" data-habit-edit-form hidden><input name="title" value="${esc(h.title)}" maxlength="100" required aria-label="修改习惯名称"><button type="submit" class="habit-edit-save" aria-label="保存修改" title="保存修改">${icon('check')}</button><button type="button" class="habit-edit-cancel" data-habit-edit-cancel>取消</button></form>
       </article>`).join('')}</div>` : `<div class="habit-empty"><strong>还没有微习惯</strong><p>从一个每天都能做到的小动作开始。</p></div>`}
     </section>
-    <button type="button" class="habit-add-fab" data-habit-fab aria-label="添加微习惯">＋</button>
-    <form class="habit-add-panel" data-add-habit hidden><input name="title" placeholder="添加一个小习惯，例如：读书 5 分钟" required><button class="primary" type="submit">添加</button></form>
+    ${showAddButton ? '<button type="button" class="habit-add-fab" data-habit-fab aria-label="添加微习惯">＋</button><form class="habit-add-panel" data-add-habit hidden><input name="title" placeholder="添加一个小习惯，例如：读书 5 分钟" required><button class="primary" type="submit">添加</button></form>' : ''}
   </div>`;
   el.querySelectorAll('[data-habit-id]').forEach(node => node.addEventListener('click', () => {
     const id = node.dataset.habitId;

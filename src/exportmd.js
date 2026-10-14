@@ -189,12 +189,24 @@ export async function buildMarkdownExport({ includeAll = false } = {}) {
       if (pl.deadline) p(`截止：${pl.deadline}`);
       if (pl.availableMin) p(`可用时间：${pl.availableMin} 分钟`);
       if (pl.constraints) p(`约束：${pl.constraints}`);
+      if (pl.priorities) p(`全局优先级：${pl.priorities}`);
+      if (pl.rules) p(`时间约束 / 例外：${pl.rules}`);
       if (pl.feasibility) {
         p(pl.feasibility.feasible === false
           ? `⚠️ **可行性：过载**（预计 ${pl.feasibility.totalMin} 分钟，超出 ${pl.feasibility.overBy} 分钟）`
           : `可行性：可接受（预计 ${pl.feasibility.totalMin} 分钟）`);
       }
-      for (const [i, it] of items.entries()) {
+      if (pl.stages?.length) {
+        for (const [stageIndex, stage] of pl.stages.entries()) {
+          p(`阶段 ${stageIndex + 1}｜${stage.name} [${stage.status || 'not_started'}]${stage.dependsOn?.length ? `；依赖：${stage.dependsOn.join('、')}` : ''}`);
+          if (stage.estimate) p(`- 周期：${stage.estimate}`);
+          if (stage.exception) p(`- 例外：${stage.exception}`);
+          if (stage.risks?.length) p(`- 风险：${stage.risks.join('、')}`);
+          for (const [i, it] of (stage.tasks || []).entries()) {
+            p(`  ${i + 1}. [${it.done ? 'x' : ' '}] ${it.text}${it.estMin ? `　(${it.estMin} 分钟)` : ''}${it.minAction ? `\n     - 启动动作：${it.minAction}` : ''}`);
+          }
+        }
+      } else for (const [i, it] of items.entries()) {
         p(`${i + 1}. [${it.done ? 'x' : ' '}] ${it.text}${it.estMin ? `　(${it.estMin} 分钟)` : ''}${it.minAction ? `\n   - 启动动作：${it.minAction}` : ''}`);
       }
       if (pl.breaks) p(`休息安排：${pl.breaks}`);

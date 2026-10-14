@@ -1,12 +1,19 @@
 create table if not exists public.user_private_records (
   user_id uuid not null references auth.users(id) on delete cascade,
-  record_type text not null check (record_type in ('profile', 'session', 'message')),
+  record_type text not null check (record_type in ('profile', 'session', 'message', 'plan')),
   record_id text not null,
   content jsonb,
   deleted_at timestamptz,
   updated_at timestamptz not null default now(),
   primary key (user_id, record_type, record_id)
 );
+
+-- 已有项目执行过旧版 SQL 的用户：把规划记录加入允许的同步类型。
+alter table public.user_private_records
+  drop constraint if exists user_private_records_record_type_check;
+alter table public.user_private_records
+  add constraint user_private_records_record_type_check
+  check (record_type in ('profile', 'session', 'message', 'plan'));
 
 alter table public.user_private_records enable row level security;
 

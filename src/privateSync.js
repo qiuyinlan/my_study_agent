@@ -36,13 +36,14 @@ function safeProfile(profile) {
 }
 
 async function readLocalRecords() {
-  const [profiles, sessions, messages] = await Promise.all([
-    db.profile.toArray(), db.sessions.toArray(), db.messages.toArray(),
+  const [profiles, sessions, messages, plans] = await Promise.all([
+    db.profile.toArray(), db.sessions.toArray(), db.messages.toArray(), db.plans.toArray(),
   ]);
   return [
     ...profiles.map(content => ({ type: 'profile', id: 'me', content: safeProfile(content), updated_at: content.updatedAt || '' })),
     ...sessions.map(content => ({ type: 'session', id: content.id, content, updated_at: content.updatedAt || content.createdAt || '' })),
     ...messages.map(content => ({ type: 'message', id: content.id, content, updated_at: content.createdAt || '' })),
+    ...plans.map(content => ({ type: 'plan', id: content.id, content, updated_at: content.updatedAt || content.createdAt || '' })),
   ];
 }
 
@@ -63,16 +64,21 @@ async function readAllRemote(userId) {
 async function applyRecords(records) {
   const sessions = records.filter(row => row.type === 'session').map(row => row.content);
   const messages = records.filter(row => row.type === 'message').map(row => row.content);
+  const plans = records.filter(row => row.type === 'plan').map(row => row.content);
   const profile = records.find(row => row.type === 'profile')?.content;
   const sessionIds = new Set(sessions.map(item => item.id));
   const messageIds = new Set(messages.map(item => item.id));
+  const planIds = new Set(plans.map(item => item.id));
   const localSessions = await db.sessions.toArray();
   const localMessages = await db.messages.toArray();
+  const localPlans = await db.plans.toArray();
 
   await db.sessions.bulkDelete(localSessions.filter(item => !sessionIds.has(item.id)).map(item => item.id));
   await db.messages.bulkDelete(localMessages.filter(item => !messageIds.has(item.id)).map(item => item.id));
+  await db.plans.bulkDelete(localPlans.filter(item => !planIds.has(item.id)).map(item => item.id));
   if (sessions.length) await db.sessions.bulkPut(sessions);
   if (messages.length) await db.messages.bulkPut(messages);
+  if (plans.length) await db.plans.bulkPut(plans);
   if (profile) await db.profile.put(profile);
   else await db.profile.delete('me');
 

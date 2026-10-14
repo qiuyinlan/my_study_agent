@@ -505,6 +505,41 @@ const noEst = await docs.savePlan({ name: '没估时的计划', availableMin: 60
 check('没提供估时也能保存', Boolean(noEst.plan.id));
 check('并把未估时数量报出来', noEst.feasibility.unestimated === 1, String(noEst.feasibility.unestimated));
 
+const staged = await docs.savePlan({
+  name: '实习求职主线', status: 'active', priorities: '项目 > 八股 > 算法',
+  rules: '下周允许先启动模拟面试',
+  stages: [
+    { name: '前置准备', status: 'active', tasks: [
+      { text: '打磨项目', estMin: 720, priority: 1 },
+      { text: '复习八股', estMin: 120, priority: 2 },
+    ] },
+    { name: '模拟面试', dependsOn: ['前置准备'], exception: '下周启动', tasks: [
+      { text: '预约老师', estMin: 30, priority: 0, earlyStart: true },
+      { text: '完成模拟面试复盘', estMin: 90, priority: 2 },
+    ] },
+    { name: '投递实战', dependsOn: ['模拟面试'], tasks: [{ text: '投递小厂', estMin: 90, priority: 1 }] },
+  ],
+});
+const stagePlan = staged.plan;
+const generatedToday = docs.schedulePlanTasks(stagePlan, 180);
+eq('自动安排只取当前阶段与明确的提前例外', generatedToday.tasks.map(x => x.text).join(','), '预约老师,打磨项目');
+eq('超长任务按可用时长切片', generatedToday.tasks[1].allocatedMin, 150);
+check('后续阶段普通任务不会越级派发', generatedToday.tasks.every(x => x.text !== '完成模拟面试复盘' && x.text !== '投递小厂'));
+const projectTask = stagePlan.stages[0].tasks[0];
+const afterSlice = await docs.completePlanTaskSlice(stagePlan.id, stagePlan.stages[0].id, projectTask.id, 150);
+eq('完成今日片段后仍保留未完成状态', afterSlice.stages[0].tasks[0].done, false);
+eq('完成今日片段后剩余时长结转', afterSlice.stages[0].tasks[0].remainingMin, 570);
+await docs.savePlan({ id: stagePlan.id, stages: [{ id: stagePlan.stages[0].id, tasks: [{ id: stagePlan.stages[0].tasks[0].id, done: true }] }] });
+const incremented = await docs.getPlan(stagePlan.id);
+eq('增量更新保留其他阶段与已存在子任务', incremented.stages.length, 3);
+eq('增量更新保留未提及任务', incremented.stages[0].tasks.length, 2);
+eq('增量更新可以标记指定任务完成', incremented.stages[0].tasks[0].done, true);
+eq('增量更新保留未提及任务的完成状态', incremented.stages[0].tasks[1].done, false);
+const scheduleNoTime = await executeTool('schedule_plan_today', '{}');
+check('聊天安排今日任务时未知时长不会猜测', scheduleNoTime.content.includes('告诉我你今天可用多少分钟'));
+const scheduleWithTime = await executeTool('schedule_plan_today', JSON.stringify({ availableMin: 90 }));
+check('聊天安排今日任务读取激活阶段与时长', scheduleWithTime.content.includes('前置准备') && scheduleWithTime.content.includes('90 分钟'));
+
 /* ══════════════ 8. SOP（§十五）═════════════ */
 console.log('\n[8] SOP 结构强制');
 
@@ -692,7 +727,7 @@ check('**全部流程都注入了（不再按需挑）**',
   persona.FLOW_ORDER.join(','));
 check('小黑屋强调不是羞辱', sysFull.includes('不是羞辱'));
 check('小黑屋有六步', sysFull.includes('第六步'));
-check('规划流程限制最多 3 个关键任务', sysFull.includes('最多 3 个'));
+check('长期规划不限制里程碑数量、每日清单仍限制 3 项', sysFull.includes('不限制长期主线的里程碑数量') && sysFull.includes('今日计划仍限制最多 3 项'));
 check('规划流程要求检查可行性', sysFull.includes('检查可行性'));
 check('流程带选择指引', sysFull.includes('一段都没对上'));
 check('流程明确「一次只走一段」', sysFull.includes('不要把几段混在一起'));

@@ -32,7 +32,7 @@ import {
 import {
   savePlan, listPlans, getPlan, deletePlan, togglePlanItem, nextPlanAction,
   checkFeasibility, saveSop, listSops, getSop, deleteSop, toggleSopStep,
-  SOP_FIELDS, PLAN_STATUSES,
+  SOP_FIELDS, PLAN_STATUSES, PLAN_STAGE_STATUSES, planStages, getActivePlan, schedulePlanTasks,
 } from './docs.js';
 import { computeToday } from './planner.js';
 import { addPending } from './pending.js';
@@ -551,27 +551,31 @@ const IMPL = {
 
   /* ────────── 规划（§十四）────────── */
 
-  async save_plan({ id = '', name, goal = '', deadline = '', availableMin = null, constraints = '',
-    items = [], breaks = '', risks = [], fallback = '', doneCriteria = '', status }) {
+  async save_plan({ id = '', name, goal, deadline, availableMin, constraints,
+    items, stages, priorities, rules, breaks, risks, fallback, doneCriteria, status }) {
     const { plan, feasibility } = await savePlan({
       id: id || undefined, name, goal, deadline, availableMin, constraints,
-      items, breaks, risks, fallback, doneCriteria, status,
+      items, stages, priorities, rules, breaks, risks, fallback, doneCriteria, status,
     });
+    const stageList = plan.stages || [];
     const lines = [
       `已保存规划 **${plan.code}｜${plan.name}**`,
       '',
       feasibility.verdict,
-      '',
-      '任务项：',
-      ...plan.items.map((it, i) =>
-        `${i + 1}. ${it.done ? '✓' : '·'} ${it.text}${it.estMin ? `（${it.estMin} 分钟）` : ''}${it.minAction ? `　启动动作：${it.minAction}` : ''}`),
+      ...stageList.flatMap((stage, index) => [
+        '', `${index + 1}. ${stage.name} [${stage.status}]${stage.dependsOn?.length ? `；依赖：${stage.dependsOn.join('、')}` : ''}${stage.exception ? `；例外：${stage.exception}` : ''}`,
+        ...stage.tasks.map((task, taskIndex) => `  ${task.done ? '✓' : '·'} ${taskIndex + 1}. ${task.text}${task.estMin ? `（${task.estMin} 分钟）` : ''} [优先级 ${task.priority}]`),
+      ]),
+      ...(plan.items?.length ? ['', '兼容旧任务项：', ...plan.items.map((it, i) => `${i + 1}. ${it.done ? '✓' : '·'} ${it.text}${it.estMin ? `（${it.estMin} 分钟）` : ''}`)] : []),
     ];
     if (feasibility.feasible === false) {
       lines.push('');
       lines.push('⚠️ §14 第四轮要求：**必须先缩减范围再开始**，不要维持一个不可能完成的计划然后责怪自己。');
     }
-    const next = nextPlanAction(plan);
-    if (next) lines.push(`\n下一步：**${next.startWith}**`);
+    const activeStage = stageList.find(stage => stage.id === plan.currentStageId)
+      || stageList.find(stage => stage.status === 'active') || stageList.find(stage => stage.status !== 'done');
+    const next = activeStage?.tasks?.find(task => !task.done);
+    if (next) lines.push(`\n当前阶段：**${activeStage.name}**；下一项：**${next.text}**`);
     return lock(lines.join('\n'), `save_plan(${plan.code})`, { refresh: true, resultRef: { store: 'plans', id: plan.id } });
   },
 
@@ -579,7 +583,7 @@ const IMPL = {
     const list = await listPlans({ status: status || undefined });
     if (!list.length) return lock('还没有任何规划。', 'list_plans(0)');
     const lines = list.map(p => {
-      const items = p.items || [];
+      const items = planStages(p).flatMap(stage => stage.tasks);
       const done = items.filter(i => i.done).length;
       const over = p.feasibility?.feasible === false ? '　⚠️ 过载' : '';
       return `- \`${p.id}\` **${p.code}｜${p.name}**　${PLAN_STATUSES[p.status]?.label || p.status}　${done}/${items.length} 项完成${over}`;
@@ -605,18 +609,39 @@ const IMPL = {
       plan.deadline ? `截止：${plan.deadline}` : '',
       plan.availableMin ? `可用时间：${plan.availableMin} 分钟` : '',
       plan.constraints ? `约束：${plan.constraints}` : '',
+      plan.priorities ? `全局优先级：${plan.priorities}` : '',
+      plan.rules ? `时间约束 / 例外：${plan.rules}` : '',
       '',
       feas.verdict,
       '',
-      '任务项：',
-      ...(plan.items || []).map((it, i) => `${i + 1}. ${it.done ? '✓' : '·'} ${it.text}${it.estMin ? `（${it.estMin} 分钟）` : ''}${it.minAction ? `　启动：${it.minAction}` : ''}`),
+      ...planStages(plan).flatMap((stage, stageIndex) => [
+        `阶段 ${stageIndex + 1}｜${stage.name} [${PLAN_STAGE_STATUSES[stage.status]}]${stage.dependsOn.length ? `；依赖：${stage.dependsOn.join('、')}` : ''}${stage.exception ? `；例外：${stage.exception}` : ''}`,
+        ...stage.tasks.map((it, i) => `  ${i + 1}. ${it.done ? '✓' : '·'} ${it.text}${it.estMin ? `（${it.estMin} 分钟）` : ''}${it.minAction ? `　启动：${it.minAction}` : ''}`),
+      ]),
     ];
     if (plan.breaks) lines.push('', `休息安排：${plan.breaks}`);
     if ((plan.risks || []).length) lines.push(`可能阻碍：${plan.risks.join('、')}`);
     if (plan.fallback) lines.push(`备用方案：${plan.fallback}`);
     if (plan.doneCriteria) lines.push(`完成标准：${plan.doneCriteria}`);
-    if (next) lines.push('', `**下一步：${next.startWith}**（第 ${next.index + 1} 项）`);
+    if (next) lines.push('', `**下一步：${next.startWith}**${next.stageName ? `（${next.stageName}）` : `（第 ${next.index + 1} 项）`}`);
     return lock(lines.filter(x => x !== '').join('\n'), `get_plan(${plan.code})`, { refresh: true });
+  },
+
+  async schedule_plan_today({ availableMin = null }) {
+    const plan = await getActivePlan();
+    if (!plan) return lock('还没有激活的主线规划，请先建立主线、阶段和子任务。', 'schedule_plan_today(no_plan)');
+    if (!Number(availableMin)) return lock(`当前激活主线是「${plan.name}」。请先告诉我你今天可用多少分钟，再按当前阶段安排任务。`, 'schedule_plan_today(needs_time)');
+    const result = schedulePlanTasks(plan, availableMin);
+    if (!result.stage) return lock(`主线「${plan.name}」下所有阶段都已完成。`, `schedule_plan_today(${plan.code},complete)`);
+    if (!result.tasks.length && result.complete) return lock(`「${plan.name}」的当前阶段「${result.stage.name}」已完成。是否进入下一阶段？`, `schedule_plan_today(${plan.code},stage_complete)`);
+    if (!result.tasks.length) return lock(`当前阶段「${result.stage.name}」没有可安排的未完成任务。`, `schedule_plan_today(${plan.code},empty)`);
+    const lines = [
+      `依据主线「${plan.name}」·当前阶段「${result.stage.name}」，今日可用 ${availableMin} 分钟：`,
+      ...result.tasks.map((task, index) => `${index + 1}. ${task.allocatedMin} 分钟｜${task.text}${task.partial ? '（本次安排片段，剩余时长会保留）' : ''}${task.exceptionTask ? `（阶段例外，提前自「${task.sourceStage}」）` : ''}`),
+      `安排依据：${typeof plan.priorities === 'string' && plan.priorities ? plan.priorities : '按子任务优先级从高到低'}。${plan.rules ? `特殊约束：${plan.rules}` : ''}`,
+      '这份清单只是建议；勾选完成情况请在主线规划页面更新。',
+    ];
+    return lock(lines.join('\n'), `schedule_plan_today(${plan.code},${result.tasks.length})`);
   },
 
   /* ────────── SOP（§十五）────────── */
@@ -1197,13 +1222,33 @@ const DEF = {
   })],
 
   /* 规划 */
-  save_plan: ['新建或更新规划（自动编号 P-001、P-002…）。走完规划流程、或用户明确想要一份书面计划时调用。它会当场做可行性检查并指出是否过载。要做 SOP 用 save_sop。', P({
+  save_plan: ['新建或增量更新主线规划（自动编号 P-001、P-002…）。新格式按主线→阶段→子任务保存，阶段包含依赖、例外、预计周期、风险、状态和任务；更新已有规划时只传需要更改的字段，省略字段会保留原值，禁止整份重建覆盖。用户要求解析长规划时必须拆出阶段链与可执行任务。要做 SOP 用 save_sop。', P({
     id: S('已有规划 id'),
     name: S('规划名称'),
     goal: S('目标'),
     deadline: S('截止时间'),
     availableMin: N('今天/本周期可用时间（分钟）—— 给了才会做可行性检查', 0, 1440),
     constraints: S('现实约束'),
+    priorities: S('全局优先级规则'),
+    rules: S('全局时间约束、特殊例外和调度规则'),
+    stages: A('按执行顺序排列的阶段目标', P({
+      id: S('已有阶段 id；更新阶段时传入以保留阶段'),
+      name: S('阶段名称'),
+      status: ENUM('阶段状态', Object.keys(PLAN_STAGE_STATUSES)),
+      dependsOn: A('前置阶段 id 或名称'),
+      exception: S('阶段依赖例外'),
+      estimate: S('预计周期或完成时间'),
+      risks: A('阶段风险标签'),
+      tasks: A('阶段内可执行子任务', P({
+        id: S('已有子任务 id；更新时传入'),
+        text: S('子任务内容'),
+        minAction: S('最小启动动作'),
+        estMin: N('预计分钟', 0, 10080),
+        priority: N('优先级数字，1 最高', 1, 10),
+        done: { type: 'boolean', description: '是否完成' },
+        earlyStart: { type: 'boolean', description: '特殊例外：依赖阶段未完成时也可提前安排' },
+      }, ['text'])),
+    }, ['name'])),
     items: A('任务项数组，每项 {text, minAction, estMin}', P({
       text: S('任务内容'),
       minAction: S('最小启动动作'),
@@ -1219,6 +1264,9 @@ const DEF = {
   get_plan: ['查看某份规划的详情，或勾掉其中某一项（传 toggleIndex）。用户问"那计划具体是哪几步""第一条做完了"，或你要推动他开始第一项时调用。只想知道有哪些规划，用 list_plans。', P({
     id: S('规划 id，留空取最近的'),
     toggleIndex: N('要勾选/取消的任务项序号（从 0 开始）', 0, 1000),
+  })],
+  schedule_plan_today: ['根据当前激活主线的当前阶段安排今天任务。用户说今天不知道做什么、帮我安排今天，或今日待办为空并要求自动安排时调用。只选当前阶段未完成任务，允许明确标记 earlyStart 的特殊例外，按优先级累加且不超过可用时间；没有给今日可用时长时先询问，不要猜。只返回建议，不写入普通任务表。', P({
+    availableMin: N('用户今天可用总分钟数；未知时省略，工具会提示询问', 1, 1440),
   })],
 
   /* SOP */
