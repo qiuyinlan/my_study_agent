@@ -1,4 +1,4 @@
-const CACHE_NAME = 'my-study-agent-pwa-v1';
+const CACHE_NAME = 'my-study-agent-pwa-v2';
 const APP_ROOT = new URL('./', self.registration.scope);
 const APP_SHELL = [
   './',
