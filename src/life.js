@@ -18,13 +18,12 @@ function saveState(state) {
 
 function itemTitle(item, fallback) { return String(item?.title || item?.content || item?.text || '').trim() || fallback; }
 
-const LIFE_KINDS = ['mainlines', 'principles', 'interests', 'boredom'];
-const LIFE_LABELS = { mainlines: '主线', principles: '原则', interests: '兴趣', boredom: '无聊清单' };
+const LIFE_KINDS = ['principles', 'interests', 'boredom'];
+const LIFE_LABELS = { principles: '原则', interests: '兴趣', boredom: '无聊清单' };
 
 export function listLifeNavigation() {
   const state = loadMicroHabitState();
   return {
-    mainlines: state.mainlines || [],
     principles: state.principles || [],
     interests: state.interests || [],
     boredom: loadBoredom(),
@@ -87,12 +86,10 @@ function listEditor(kind, title, items, placeholder) {
 export function renderLifeNav(el, { onChanged, activeKind = null } = {}) {
   el.dataset.lifeActive = activeKind || '';
   const state = loadMicroHabitState();
-  const mainlines = Array.isArray(state.mainlines) ? state.mainlines : [];
   const principles = Array.isArray(state.principles) ? state.principles : [];
   const interests = Array.isArray(state.interests) ? state.interests : [];
   const boredom = loadBoredom();
   const sections = [
-    ['mainlines', '主线', '长期想推进的方向', mainlines, '例如：建立自己的学习系统', 'compass'],
     ['principles', '原则', '帮助你做决定的信念', principles, '例如：先做最小可行动的一步', 'principle'],
     ['interests', '兴趣', '想研究或体验的事', interests, '例如：想研究的主题或想体验的事', 'interest'],
     ['boredom', '无聊清单', '无聊时可以直接做的事', boredom, '无聊时可以做的事', 'boredom'],

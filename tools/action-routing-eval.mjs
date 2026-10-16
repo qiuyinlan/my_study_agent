@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import {
   createOperationReceipt, findActionByIdempotencyKey, isPotentialWriteRequest,
   shouldPlanGenericWriteActions,
-  listActionLedger, listTurnEvents, getActionMetrics, makeIdempotencyKey, parseActionPlan, recordAction, recordTurnEvent, shouldPlanActions,
+  listActionLedger, listTurnEvents, getActionMetrics, makeIdempotencyKey, parseActionPlan, parseGenericWritePlan, recordAction, recordTurnEvent, shouldPlanActions,
 } from '../src/operation-plan.js';
 import { executeTool, validateToolArguments, verifyPersistedResult, TOOL_NAMES, WRITE_TOOL_NAMES } from '../src/tools.js';
 import { buildActionDiagnosticsExport } from '../src/action-diagnostics.js';
@@ -30,12 +30,31 @@ if (Object.values(categoryCounts).some(count => !count)) failures++;
 const valid = parseActionPlan(JSON.stringify({
   actions: [
     { kind: 'log_time_entry', minutes: 30, note: '自报耗时' },
-    { kind: 'save_task', title: '联系同学拿外网流量' },
+    { kind: 'save_task', title: '联系同学拿外网流量', dueAt: '2026-10-14' },
   ],
   questions: [],
 }));
 if (valid.actions.length !== 2 || valid.actions[0].args.selfReportedMin !== 30) failures++;
 console.log(`${valid.actions.length === 2 ? '✓' : '✗'} multi-action plan parses and preserves reported-time source`);
+const missingTaskDate = parseActionPlan({
+  actions: [{ kind: 'save_task', title: '复习数组算法' }], questions: [],
+});
+if (missingTaskDate.actions[0].status !== 'needs_info' || !missingTaskDate.actions[0].missingFields.includes('date')) failures++;
+console.log(`${missingTaskDate.actions[0].status === 'needs_info' ? '✓' : '✗'} new main tasks require a date before a draft is created`);
+const unscheduledChore = parseActionPlan({
+  actions: [{ kind: 'save_task', title: '整理桌面', category: 'chore' }], questions: [],
+});
+if (unscheduledChore.actions[0].status !== 'requested') failures++;
+console.log(`${unscheduledChore.actions[0].status === 'requested' ? '✓' : '✗'} chores may be unscheduled`);
+const genericMissingDate = parseGenericWritePlan({
+  actions: [{ tool: 'save_task', arguments: { title: '准备面试' } }], questions: [],
+});
+const genericExistingUpdate = parseGenericWritePlan({
+  actions: [{ tool: 'save_task', arguments: { title: '已有任务', nextAction: '打开文档' } }], questions: [],
+}, { existingTaskTitles: ['已有任务'] });
+if (genericMissingDate.actions[0].status !== 'needs_info' || !genericMissingDate.actions[0].missingFields.includes('date')
+  || genericExistingUpdate.actions[0].status !== 'requested') failures++;
+console.log(`${genericMissingDate.actions[0].status === 'needs_info' && genericExistingUpdate.actions[0].status === 'requested' ? '✓' : '✗'} generic planning requires dates only for new tasks`);
 const partial = parseActionPlan({
   actions: [
     { kind: 'log_time_entry', minutes: 12 },
@@ -74,6 +93,7 @@ for (const [label, text, expected] of [
   ['explicit timer start stays on timer route', '帮我把计时开起来', false],
   ['timer stop stays on timer route', '结束当前计时', false],
   ['question about writing is not a write request', '要不要把这件事加到待办？', false],
+  ['career preparation discussion is not a write request', '我打算11月前找到实习，先把项目学熟、准备八股和基础算法，下周约模拟面试，之后开始投递。最怕算法，但项目更重要。', false],
 ]) {
   const actual = shouldPlanGenericWriteActions(text);
   if (actual !== expected) failures++;

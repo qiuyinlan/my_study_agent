@@ -493,6 +493,30 @@ eq('**过载被检出**', overload.feasibility.feasible, false);
 eq('算出超出 90 分钟', overload.feasibility.overBy, 90);
 check('过载结论明确说"必须缩减范围"', /缩减范围|过载/.test(overload.feasibility.verdict));
 
+const multiDayFeasibility = docs.checkFeasibility({
+  availableMin: 240,
+  deadline: util.addDays(util.dateStr(), 6),
+  stages: [{ name: '阶段一', estimate: '7天', tasks: [{ text: '阶段任务', estMin: 990 }] }],
+});
+check('多日阶段按截止周期容量评估，不和单日分钟数比较', multiDayFeasibility.feasible === true
+  && multiDayFeasibility.periodDays === 7 && multiDayFeasibility.capacityMin === 1680,
+`${multiDayFeasibility.totalMin}/${multiDayFeasibility.capacityMin}`);
+const savedMultiDayPlan = await docs.savePlan({
+  name: '多日周期读取测试', availableMin: 240,
+  deadline: util.addDays(util.dateStr(), 6),
+  stages: [{ name: '阶段一', estimate: '7天', tasks: [{ text: '阶段任务', estMin: 990 }] }],
+});
+await db.plans.update(savedMultiDayPlan.plan.id, { feasibility: { totalMin: 990, overBy: 750, feasible: false } });
+const refreshedMultiDayPlan = await docs.getPlan(savedMultiDayPlan.plan.id);
+check('读取旧多阶段计划时按新周期规则刷新过载状态', refreshedMultiDayPlan.feasibility.feasible === true
+  && refreshedMultiDayPlan.feasibility.capacityMin === 1680);
+const unknownPeriodFeasibility = docs.checkFeasibility({
+  availableMin: 240,
+  stages: [{ name: '阶段一', tasks: [{ text: '阶段任务', estMin: 990 }] }],
+});
+check('多阶段规划缺少周期时不误报过载', unknownPeriodFeasibility.feasible === null
+  && unknownPeriodFeasibility.overBy === null);
+
 const nextA = docs.nextPlanAction(planA.plan);
 eq('下一步是第一项', nextA.text, '看视频');
 eq('给的启动动作是最小动作', nextA.startWith, '打开视频第一集');
@@ -815,19 +839,47 @@ let out = await executeTool('list_tasks', '{}');
 check('list_tasks 成功', !out.error, out.content?.slice(0, 60));
 check('列出了任务', out.content.includes('CS229'));
 
+const taskDraftSession = 'smoke-task-chat-approval';
+const tasksBeforeMissingDate = await dbm.listTasks();
+out = await executeTool('save_task', JSON.stringify({ title: '写论文引言', priority: 'P0', area: 'work' }), {
+  sessionId: taskDraftSession, userText: '帮我加个任务：写论文引言',
+});
+check('主要任务缺日期时先询问，不创建失败重试或草稿', out.status === 'needs_info'
+  && !out.chatApproval && (await dbm.listTasks()).length === tasksBeforeMissingDate.length);
 out = await executeTool('save_task', JSON.stringify({
-  title: '写论文引言', priority: 'P0', area: 'work', nextAction: '打开文档写三行',
-}));
-check('save_task 新建成功', !out.error, out.content?.slice(0, 80));
-check('save_task 成功回执包含真实保存对象',
-  out.content.includes('写论文引言') && (await dbm.listTasks()).some(t => t.title === '写论文引言'));
+  title: '写论文引言', priority: 'P0', area: 'work', dueAt: util.dateStr(),
+  nextAction: '打开文档写三行',
+}), { sessionId: taskDraftSession, userText: '今天写论文引言' });
+const taskDrafts = await chatApprovals.listChatWrites(taskDraftSession);
+check('带日期的新任务先出现在聊天确认草稿', out.chatApproval === true && taskDrafts[0]?.args?.dueAt === util.dateStr()
+  && !(await dbm.listTasks()).some(t => t.title === '写论文引言'));
+out = await executeTool(taskDrafts[0].tool, taskDrafts[0].args, { confirmed: true, sessionId: taskDraftSession });
+check('点击确认后新任务成功保存', !out.error && (await dbm.listTasks()).some(t => t.title === '写论文引言'));
+await chatApprovals.removeChatWrites(taskDrafts.map(item => item.id));
 out = await executeTool('set_key_tasks', JSON.stringify({ ids: ['写论文引言'] }));
 check('关键任务实际挂载前只能显示待确认',
   out.pending === true && out.content.includes('尚未执行') && !(await dbm.getKeyTasks()).length);
 out = await executeTool('save_task', JSON.stringify({
   title: '整理桌面杂事', priority: 'P3', category: 'chore', area: 'life',
-}));
-check('save_task 会保存 AI 指定的杂事分类', !out.error && (await dbm.listTasks()).find(t => t.title === '整理桌面杂事')?.category === 'chore');
+}), { sessionId: taskDraftSession });
+check('杂事无需日期且先生成确认草稿', out.chatApproval === true && !(await dbm.listTasks()).some(t => t.title === '整理桌面杂事'));
+const choreDrafts = await chatApprovals.listChatWrites(taskDraftSession);
+out = await executeTool(choreDrafts[0].tool, choreDrafts[0].args, { confirmed: true, sessionId: taskDraftSession });
+check('确认后保存 AI 指定的杂事分类', !out.error && (await dbm.listTasks()).find(t => t.title === '整理桌面杂事')?.category === 'chore');
+await chatApprovals.removeChatWrites(choreDrafts.map(item => item.id));
+out = await executeTool('save_task', JSON.stringify({ title: '准备实习面试', dateMode: 'unscheduled' }), {
+  sessionId: taskDraftSession, userText: '帮我新增任务：准备实习面试',
+});
+check('不能只靠模型参数把主要任务设成无日期', out.status === 'needs_info');
+out = await executeTool('save_task', JSON.stringify({ title: '准备实习面试', dateMode: 'unscheduled' }), {
+  sessionId: taskDraftSession, userText: '这项任务的时间不确定，先不安排日期',
+});
+check('用户明确说时间未定后允许生成无日期草稿', out.chatApproval === true);
+const unscheduledDrafts = await chatApprovals.listChatWrites(taskDraftSession);
+out = await executeTool(unscheduledDrafts[0].tool, unscheduledDrafts[0].args, { confirmed: true, sessionId: taskDraftSession });
+check('确认后无日期任务保持无日期', !out.error
+  && !(await dbm.listTasks()).find(t => t.title === '准备实习面试')?.dueAt);
+await chatApprovals.removeChatWrites(unscheduledDrafts.map(item => item.id));
 
 out = await executeTool('manage_micro_habit', JSON.stringify({ action: 'add', title: '读书五分钟' }));
 check('AI 能新增全局微习惯', !out.error && out.content.includes('读书五分钟'));
@@ -855,11 +907,19 @@ check('AI 可以导航到生活导航页面', !out.error && out.openPanel === 'l
 out = await executeTool('open_panel', JSON.stringify({ panel: 'habits' }));
 check('AI 可以导航到微习惯页面', !out.error && out.openPanel === 'habits');
 
-out = await executeTool('set_task_state', JSON.stringify({ id: '写论文引言', state: 'BLOCKED' }));
-check('set_task_state 可用标题匹配', !out.error);
+out = await executeTool('set_task_state', JSON.stringify({ id: '写论文引言', state: 'BLOCKED' }), { sessionId: taskDraftSession });
+check('set_task_state 先生成聊天确认草稿', out.chatApproval === true);
+check('状态草稿确认前任务状态不变', (await dbm.listTasks()).find(task => task.title === '写论文引言')?.state !== 'BLOCKED');
+let stateDrafts = await chatApprovals.listChatWrites(taskDraftSession);
+out = await executeTool(stateDrafts[0].tool, stateDrafts[0].args, { confirmed: true, sessionId: taskDraftSession });
+await chatApprovals.removeChatWrites(stateDrafts.map(item => item.id));
+check('set_task_state 确认后可用标题匹配', !out.error);
 check('**提示 BLOCKED 缺阻碍**', out.content.includes('阻碍'), out.content.slice(0, 120));
 
-out = await executeTool('set_task_state', JSON.stringify({ id: '写论文引言', state: 'DOING', note: '开始写了' }));
+out = await executeTool('set_task_state', JSON.stringify({ id: '写论文引言', state: 'DOING', note: '开始写了' }), { sessionId: taskDraftSession });
+stateDrafts = await chatApprovals.listChatWrites(taskDraftSession);
+out = await executeTool(stateDrafts[0].tool, stateDrafts[0].args, { confirmed: true, sessionId: taskDraftSession });
+await chatApprovals.removeChatWrites(stateDrafts.map(item => item.id));
 check('转 DOING 成功', !out.error);
 
 out = await executeTool('timer_start', JSON.stringify({ task: '写论文引言', plannedMin: 30 }));
@@ -982,7 +1042,7 @@ await pendingMod.clearPending();
 out = await executeTool('set_task_state', '{坏 JSON');
 check('非法 JSON 被吞成可读错误', out.error === true);
 check('非法 JSON 使用参数错误码', out.errorCode === 'invalid_json');
-out = await executeTool('set_task_state', JSON.stringify({ id: '不存在的任务', state: 'DOING' }));
+out = await executeTool('set_task_state', JSON.stringify({ id: '不存在的任务', state: 'DOING' }), { confirmed: true });
 check('找不到任务时给出可读错误', out.error === true && out.content.includes('找不到'));
 check('业务拒绝与参数错误分开', out.errorCode === 'business_rejected' && out.retryable === false);
 out = await executeTool('不存在的工具', '{}');

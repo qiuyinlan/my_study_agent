@@ -140,7 +140,7 @@ async function executeGenericWritePlan({ plan, session, userMessage, userText, e
 
     if (action.status === 'needs_info' || action.status === 'failed') {
       const detail = action.status === 'needs_info'
-        ? `缺少必填信息：${action.missingFields.join('、')}`
+        ? `缺少必填信息：${action.missingFields.map(field => ({ date: '日期/可执行时间' }[field] || field)).join('、')}`
         : action.validationError;
       await recordAction({
         ...entry, status: action.status, detail,
@@ -152,7 +152,7 @@ async function executeGenericWritePlan({ plan, session, userMessage, userText, e
 
     await recordAction({ ...entry, status: 'executing' });
     emit({ type: 'tool_start', name: action.kind, args: JSON.stringify(action.args), operationId });
-    const out = await executeTool(action.kind, action.args, { sessionId: session.id, operationId });
+    const out = await executeTool(action.kind, action.args, { sessionId: session.id, operationId, userText });
     executedCount++;
     const status = out.status || (out.error ? 'failed' : out.pending || out.chatApproval ? 'awaiting_confirmation' : 'succeeded');
     await recordAction({
@@ -162,19 +162,22 @@ async function executeGenericWritePlan({ plan, session, userMessage, userText, e
     });
     emit({
       type: 'tool_result', name: action.kind, ok: !out.error, status, operationId,
-      summary: out.summary || action.kind, pending: Boolean(out.pending || out.chatApproval), toast: out.toast || '',
+      summary: out.error ? (out.content || out.summary || action.kind) : (out.summary || action.kind),
+      pending: Boolean(out.pending || out.chatApproval), toast: out.toast || '',
     });
     if (out.pending) emit({ type: 'pending', pendingId: out.pendingId, name: action.kind, summary: out.summary });
     if (out.chatApproval) emit({ type: 'pending', name: action.kind, summary: out.summary });
     if (out.refresh) emit({ type: 'refresh' });
+    if (out.openPanel) emit({ type: 'open_panel', panel: out.openPanel });
     outcomes.push({ action, status, detail: out.content || '' });
   }
 
   const lines = ['已逐项处理本轮写操作：'];
   for (const { action, status, detail } of outcomes) {
     const target = action.args.title || action.args.name || action.args.topic || action.args.task || '';
-    const missing = action.missingFields.map(field => ({ minutes: '时长', title: '待办内容' }[field] || field)).join('、');
+    const missing = action.missingFields.map(field => ({ minutes: '时长', title: '待办内容', date: '日期/可执行时间' }[field] || field)).join('、');
     lines.push(`- ${labels[action.kind] || '写入操作'}${target ? `「${target}」` : ''}：${statusLabels[status] || '状态未知'}${status === 'needs_info' && missing ? `（缺少：${missing}）` : ''}${status === 'failed' && detail ? `（${detail}）` : ''}`);
+    if (status === 'needs_info' && action.missingFields.includes('date')) lines.push('  请问这项任务哪天、什么时间方便安排？');
   }
   for (const question of plan.questions) lines.push(`- 还需补充：${question}`);
   if (executedCount) emit({ type: 'tools_used', names: outcomes.filter(item => !['needs_info', 'failed'].includes(item.status)).map(item => item.action.kind) });
@@ -220,7 +223,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
             detail: out.content || '', entity: out.entity || null,
           });
         }
-        results.push(out.content || `已保存 ${item.tool}`);
+        results.push('用户已确认。');
         emit({ type: 'tool_start', name: item.tool, args: JSON.stringify(item.args) });
         emit({ type: 'tool_result', name: item.tool, ok: true, summary: out.summary || item.tool, toast: out.toast || '', confirmed: true });
         if (out.refresh) emit({ type: 'refresh' });
@@ -240,6 +243,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
   const turnCodeNote = [codeNote, actionNote].filter(Boolean).join('\n\n');
   const { messages, debug, intent } = await buildMessages({ sessionId: session.id, userText, codeNote: turnCodeNote });
   emit({ type: 'context', debug, intent });
+  let plannerConfirmedNoWrite = false;
 
   if (shouldPlanActions(userText)) {
     emit({ type: 'operation_plan_start' });
@@ -261,7 +265,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
       if (planned.usage) await addUsage(planned.usage);
       const call = planned.toolCalls.find(tc => tc.function?.name === ACTION_PLAN_TOOL.function.name);
       if (!call) throw new Error('模型没有返回强制要求的操作清单');
-      plan = parseActionPlan(call.function.arguments);
+      plan = parseActionPlan(call.function.arguments, { userText });
     } catch (error) {
       const operationId = `${userMessage.id}:plan`;
       await recordAction({
@@ -320,13 +324,13 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
         requiresConfirmation: action.kind === 'log_time_entry',
       });
       if (action.status === 'needs_info') {
-        const fieldNames = action.missingFields.map(field => ({ minutes: '时长', title: '待办内容' }[field] || field));
+        const fieldNames = action.missingFields.map(field => ({ minutes: '时长', title: '待办内容', date: '日期/可执行时间' }[field] || field));
         const out = { content: `缺少${fieldNames.join('、')}`, status: 'needs_info' };
         outcomes.push({ action, out, status: 'needs_info' });
         continue;
       }
       emit({ type: 'tool_start', name: action.kind, args: JSON.stringify(action.args), operationId });
-      const out = await executeTool(action.kind, action.args, { sessionId: session.id, operationId });
+      const out = await executeTool(action.kind, action.args, { sessionId: session.id, operationId, userText });
       const status = out.status || (out.error ? 'failed' : out.pending || out.chatApproval ? 'awaiting_confirmation' : 'succeeded');
       await recordAction({
         sessionId: session.id, turnId: userMessage.id, operationId,
@@ -356,10 +360,11 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
       const state = status === 'verified' ? '已写入并核验'
         : status === 'awaiting_confirmation' ? '草稿已生成，等待你确认'
           : status === 'deduplicated' ? '与本轮相同操作合并，未重复执行'
-          : status === 'needs_info' ? `尚未执行，缺少${action.missingFields.map(field => ({ minutes: '时长', title: '待办内容' }[field] || field)).join('、')}`
+          : status === 'needs_info' ? `尚未执行，缺少${action.missingFields.map(field => ({ minutes: '时长', title: '待办内容', date: '日期/可执行时间' }[field] || field)).join('、')}`
           : status === 'failed' ? '未完成'
             : '已执行，尚未做持久化核验';
       lines.push(`- ${label}：${state}${out.error ? `（${out.content}）` : ''}`);
+      if (status === 'needs_info' && action.missingFields.includes('date')) lines.push('  请问这项任务哪天、什么时间方便安排？');
     }
     for (const question of plan.questions) lines.push(`- 还需补充：${question}`);
     const response = lines.join('\n');
@@ -388,8 +393,14 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
       if (planned.usage) await addUsage(planned.usage);
       const call = planned.toolCalls.find(tc => tc.function?.name === GENERIC_WRITE_PLAN_TOOL.function.name);
       if (!call) throw new Error('模型没有返回强制要求的写操作清单');
-      const plan = parseGenericWritePlan(call.function.arguments);
-      return executeGenericWritePlan({ plan, session, userMessage, userText, emit });
+      const existingTaskTitles = (await db.tasks.toArray()).map(task => task.title);
+      const plan = parseGenericWritePlan(call.function.arguments, { userText, existingTaskTitles });
+      if (plan.actions.length || plan.questions.length) {
+        return executeGenericWritePlan({ plan, session, userMessage, userText, emit });
+      }
+      // The planner's empty result means this was discussion, not a write request.
+      // Continue through the normal assistant turn instead of surfacing planner internals.
+      plannerConfirmedNoWrite = true;
     } catch (error) {
       await recordAction({
         sessionId: session.id, turnId: userMessage.id, operationId: `${userMessage.id}:write-plan`,
@@ -410,7 +421,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
   let aborted = false;
   const usedTools = [];
   const forceTimerStart = isExplicitTimerStartRequest(userText);
-  const holdWriteReply = isPotentialWriteRequest(userText);
+  const holdWriteReply = !plannerConfirmedNoWrite && isPotentialWriteRequest(userText);
 
   try {
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
@@ -469,11 +480,20 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
         });
         const failedRetryExhausted = previousWrite?.status === 'failed'
           && (!previousWrite.result?.retryable || previousWrite.attemptCount >= 2);
+        const previousNeedsInfo = previousWrite?.status === 'needs_info';
         const previousAlreadyHandled = previousWrite
           && (['requested', 'executing', 'awaiting_confirmation', 'succeeded', 'verified', 'deduplicated'].includes(previousWrite.status)
-            || failedRetryExhausted);
+            || failedRetryExhausted || previousNeedsInfo);
         const out = previousAlreadyHandled
-          ? previousWrite.status === 'failed'
+          ? previousNeedsInfo
+            ? {
+                status: 'needs_info',
+                errorCode: '',
+                retryable: false,
+                content: previousWrite.result?.content || previousWrite.detail || '仍需先询问用户哪天、什么时间方便安排任务。',
+                summary: '等待补充任务时间',
+              }
+            : previousWrite.status === 'failed'
             ? {
                 error: true,
                 status: 'failed',
@@ -498,7 +518,7 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
               summary: '没有明确的计时请求',
             }
           : await executeTool(name, tc.function?.arguments, {
-            sessionId: session.id, operationId: `${userMessage.id}:tool:${tc.id}`,
+            sessionId: session.id, operationId: `${userMessage.id}:tool:${tc.id}`, userText,
           });
         toolCallCount++;
         usedTools.push(name);
@@ -512,7 +532,8 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
           result: createOperationReceipt({ operationId }, out),
         });
 
-        emit({ type: 'tool_result', name, ok: !out.error, status: out.status, operationId, summary: out.summary || name,
+        emit({ type: 'tool_result', name, ok: !out.error, status: out.status, operationId,
+          summary: out.error ? (out.content || out.summary || name) : (out.summary || name),
           pending: Boolean(out.pending || out.chatApproval), toast: out.toast || '' });
         if (out.pending) {
           await emit({ type: 'pending', pendingId: out.pendingId, name, summary: out.summary });

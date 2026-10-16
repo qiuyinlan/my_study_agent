@@ -193,7 +193,7 @@ export async function buildMarkdownExport({ includeAll = false } = {}) {
       if (pl.rules) p(`时间约束 / 例外：${pl.rules}`);
       if (pl.feasibility) {
         p(pl.feasibility.feasible === false
-          ? `⚠️ **可行性：过载**（预计 ${pl.feasibility.totalMin} 分钟，超出 ${pl.feasibility.overBy} 分钟）`
+          ? `⚠️ **可行性：过载**（预计 ${pl.feasibility.totalMin} 分钟，周期容量 ${pl.feasibility.capacityMin ?? pl.availableMin} 分钟，超出 ${pl.feasibility.overBy} 分钟）`
           : `可行性：可接受（预计 ${pl.feasibility.totalMin} 分钟）`);
       }
       if (pl.stages?.length) {

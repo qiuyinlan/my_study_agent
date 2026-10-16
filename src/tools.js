@@ -149,7 +149,7 @@ const IMPL = {
   },
 
   async save_task({ id = '', title = '', state, priority, category, area, goal, dueAt, estimateMin,
-    plannedStart, nextAction, blocker, progress, milestones, notes, mood, attention, outcome, review }) {
+    plannedStart, dateMode, nextAction, blocker, progress, milestones, notes, mood, attention, outcome, review }) {
     let target = id ? await resolveTask(id) : null;
     if (!target && title) target = await resolveTask(title);
 
@@ -160,7 +160,14 @@ const IMPL = {
     set('priority', priority ? String(priority).toUpperCase() : undefined);
     set('category', category);
     set('area', area);
-    set('goal', goal); set('dueAt', dueAt); set('plannedStart', plannedStart);
+    set('goal', goal);
+    if (dateMode === 'unscheduled') {
+      patch.dueAt = '';
+      patch.plannedStart = '';
+    } else {
+      set('dueAt', dueAt);
+      set('plannedStart', plannedStart);
+    }
     set('nextAction', nextAction); set('blocker', blocker); set('notes', notes);
     set('outcome', outcome); set('review', review);
     if (estimateMin !== undefined) patch.estimateMin = estimateMin === null || estimateMin === '' ? null : Number(estimateMin);
@@ -576,7 +583,11 @@ const IMPL = {
       || stageList.find(stage => stage.status === 'active') || stageList.find(stage => stage.status !== 'done');
     const next = activeStage?.tasks?.find(task => !task.done);
     if (next) lines.push(`\n当前阶段：**${activeStage.name}**；下一项：**${next.text}**`);
-    return lock(lines.join('\n'), `save_plan(${plan.code})`, { refresh: true, resultRef: { store: 'plans', id: plan.id } });
+    return lock(lines.join('\n'), `save_plan(${plan.code})`, {
+      refresh: true,
+      openPanel: 'plans',
+      resultRef: { store: 'plans', id: plan.id },
+    });
   },
 
   async list_plans({ status = '' }) {
@@ -1059,7 +1070,7 @@ const DEF = {
     limit: N('最多返回几条，默认 30', 1, 100),
   })],
   get_task: ['查看单个任务的完整字段和时间记录。需要某个任务的全部细节（实际耗时、复盘、阻碍、里程碑）时用。只是想知道有哪些任务，用 list_tasks。', P({ id: S('任务 id 或标题') }, ['id'])],
-  save_task: ['新建或更新任务。用户定目标、改截止、推进度、写下一步或阻碍时调用；他描述出一件要做的事、你判断该记下来时也调它。必须按用户说的分类传 category：杂事用 chore，主要任务用 important；不要默认把杂事存成主要任务。只是改状态请用 set_task_state。', P({
+  save_task: ['新建或更新任务。用户定目标、改截止、推进度、写下一步或阻碍时调用；他描述出一件要做的事、你判断该记下来时也调它。必须按用户说的分类传 category：杂事用 chore，主要任务用 important；不要默认把杂事存成主要任务。主要任务必须有用户明确提到的日期（dueAt）或计划执行时间（plannedStart），不能默认今天或留空；没提供日期/可用时段就先问用户哪天、什么时间方便，等回答后再建任务。杂事可以不记录日期。用户明确说日期未定或不用记日期时，才传 dateMode=unscheduled。用户说了可用时间时，结合该时段拟出 plannedStart 供用户确认。任务写入会先生成聊天确认草稿，用户点击保存后才落库。只是改状态请用 set_task_state。', P({
     id: S('已有任务的 id 或标题；新建时不传'),
     title: S('任务名称'),
     state: ENUM('状态，仅新建时用；改状态请用 set_task_state', Object.keys(TASK_STATES)),
@@ -1068,8 +1079,9 @@ const DEF = {
     area: ENUM('领域', Object.keys(AREAS)),
     goal: S('想达成什么，越具体越好'),
     dueAt: S('截止日期 YYYY-MM-DD'),
+    dateMode: ENUM('仅用户明确表示不安排/不记录日期时使用；日期未定时也必须由用户明确表示', ['unscheduled']),
     estimateMin: N('预计耗时（分钟）', 0, 10080),
-    plannedStart: S('计划开始时间'),
+    plannedStart: S('计划执行开始时间，优先使用 YYYY-MM-DD HH:mm'),
     nextAction: S('下一步行动 —— 必须具体到看着就知道怎么做'),
     blocker: S('当前阻碍。标 BLOCKED 时必须写'),
     progress: N('进度 0-100', 0, 100),
@@ -1227,7 +1239,7 @@ const DEF = {
     name: S('规划名称'),
     goal: S('目标'),
     deadline: S('截止时间'),
-    availableMin: N('今天/本周期可用时间（分钟）—— 给了才会做可行性检查', 0, 1440),
+    availableMin: N('每天可投入此主线的分钟数；多阶段规划需结合截止日期估算周期总容量，单阶段/旧式计划按单次可用时间检查', 0, 1440),
     constraints: S('现实约束'),
     priorities: S('全局优先级规则'),
     rules: S('全局时间约束、特殊例外和调度规则'),
@@ -1373,9 +1385,19 @@ const DEF = {
 };
 
 const CHAT_CONFIRM_TOOLS = new Set([
-  'update_profile', 'save_memory', 'save_checkin', 'save_review',
-  'record_procrastination', 'log_study', 'log_time_entry', 'update_time_entry', 'add_topic', 'grade_review',
+  // Every tool that changes data or state must wait for an explicit user action.
+  // Read-only tools are intentionally excluded.
+  'save_task', 'set_task_state', 'set_key_tasks', 'delete_task', 'timer_start', 'timer_stop',
+  'log_time_entry', 'update_time_entry', 'log_study', 'save_checkin',
+  'save_review', 'record_procrastination', 'save_plan', 'save_sop',
+  'save_memory', 'forget_memory', 'update_profile', 'add_topic', 'grade_review',
+  'award_points', 'confirm_points', 'upsert_reward', 'redeem_reward',
+  'manage_micro_habit', 'manage_life_navigation',
 ]);
+
+export function explicitlyRequestsUnscheduledTask(userText = '') {
+  return /(?:时间|日期|哪天).{0,8}(?:不确定|未定|先不定)|(?:不确定|未定).{0,8}(?:时间|日期|哪天)|(?:不用|不需要|不必|不要).{0,8}(?:记录|记|安排|设置|设定).{0,8}(?:日期|时间|哪天)|(?:日期|时间).{0,8}(?:不用|不需要|不必|不要).{0,8}(?:记录|记|安排|设置|设定)/u.test(String(userText));
+}
 
 export const TOOL_DEFS = Object.entries(DEF).map(([name, [description, parameters]]) => ({
   type: 'function',
@@ -1624,7 +1646,7 @@ export async function verifyPersistedResult(store, persisted, args = {}) {
  * @param {{confirmed?:boolean, sessionId?:string}} [opts]
  *   confirmed=false 时，命中 CONFIRM_RULES 的动作**不会执行**，只登记成待确认项。
  */
-export async function executeTool(name, rawArgs, { confirmed = false, sessionId = '', operationId = '' } = {}) {
+export async function executeTool(name, rawArgs, { confirmed = false, sessionId = '', operationId = '', userText = '' } = {}) {
   let args;
   try {
     args = typeof rawArgs === 'string' ? JSON.parse(rawArgs || '{}') : (rawArgs || {});
@@ -1649,6 +1671,29 @@ export async function executeTool(name, rawArgs, { confirmed = false, sessionId 
       errorCode: 'invalid_arguments', retryable: false,
       summary: `${name} ✗ 参数`,
     };
+  }
+
+  if (name === 'save_task' && !confirmed) {
+    const existing = (args.id || args.title) ? await resolveTask(args.id || args.title) : null;
+    const hasSchedule = Boolean(String(args.dueAt || '').trim() || String(args.plannedStart || '').trim());
+    const isChore = args.category === 'chore';
+    const explicitlyUnscheduled = args.dateMode === 'unscheduled' && explicitlyRequestsUnscheduledTask(userText);
+    if (!existing && !hasSchedule && !isChore && !explicitlyUnscheduled) {
+      return {
+        status: 'needs_info', requiresConfirmation: false, retryable: false,
+        errorCode: '',
+        content: '先不创建任务草稿。请先问用户哪天、什么时间方便安排；用户答复后再生成带日期的确认草稿。若用户明确说时间未定或不用记录日期，才可按无日期任务处理。',
+        summary: '需要补充任务日期或时间',
+      };
+    }
+    if (args.dateMode === 'unscheduled' && !explicitlyUnscheduled && !isChore) {
+      return {
+        status: 'needs_info', requiresConfirmation: false, retryable: false,
+        errorCode: '',
+        content: '用户没有明确要求将此任务设为无日期，请先询问任务日期或可执行时间。',
+        summary: '需要确认任务日期',
+      };
+    }
   }
 
   /* ── 需要用户点确认的动作：先不执行 ── */

@@ -14,6 +14,7 @@ import { getActiveTimer, estimationStats, STALE_HOURS } from './timer.js';
 import { getLedger } from './ledger.js';
 import { getCheckin, isMedsEnabled, patternStats } from './records.js';
 import { dateStr, endOfToday, daysUntil } from './util.js';
+import { listPlans } from './docs.js';
 
 export const STALL_DAYS = 3;
 /** 超过这个天数没动，就算"停滞" */
@@ -193,7 +194,7 @@ export async function computeToday() {
   }
 
   /* ── 规划过载 ── */
-  const plans = await db.plans.toArray();
+  const plans = await listPlans({});
   const activePlans = plans.filter(p => p.status === 'active' || p.status === 'draft');
   const overloaded = activePlans.filter(p => p.feasibility?.feasible === false);
 

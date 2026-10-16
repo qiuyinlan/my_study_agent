@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
-<meta name="theme-color" content="#f7f8fa">
+<meta name="theme-color" content="#ffffff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="帕尼尼">
@@ -92,10 +92,10 @@
   <form method="dialog" class="dlg">
     <h3>设置</h3>
 
-    <label>DeepSeek API Key
+    <label id="set-key-label">DeepSeek API Key
       <input type="password" id="set-key" placeholder="sk-..." autocomplete="off" spellcheck="false">
     </label>
-    <small class="hint">只保存在这台电脑的浏览器里，页面直接连 DeepSeek 官方接口，中间没有代理。</small>
+    <small class="hint" id="set-key-hint">个人直连模式下，Key 只保存在这台电脑的浏览器里。</small>
 
     <label class="row">
       <input type="checkbox" id="set-persist" checked>
@@ -129,6 +129,18 @@
     </div>
     <div class="hint" id="review-sync-status" aria-live="polite"></div>
     <div class="hint" id="private-sync-status" aria-live="polite"></div>
+
+    <div class="section-title">测试体验</div>
+    <p class="hint">登录账号后兑换测试码。体验有效期与 AI 使用额度由服务端校验。</p>
+    <div class="grid2">
+      <label>测试兑换码<input type="text" id="test-redeem-code" autocomplete="off" spellcheck="false" placeholder="TEST-XXXX-XXXX-XXXX"></label>
+      <div class="dlg-actions" style="align-self:end">
+        <button type="button" class="ghost" id="btn-test-redeem">兑换</button>
+        <button type="button" class="ghost" id="btn-test-access-refresh">刷新状态</button>
+      </div>
+    </div>
+    <div class="hint" id="test-access-status" aria-live="polite">正在读取体验权限…</div>
+    <div class="hint" id="test-redeem-history" aria-live="polite"></div>
 
     <div class="section-title">存储与清理</div>
     <p class="hint">已完成或取消超过 60 天的任务，以及超过 60 天的微习惯完成历史，会自动清理；未完成任务和微习惯本身会保留。对话和学习档案只会在你手动删除时清理。</p>
@@ -233,7 +245,7 @@
       <button type="button" class="ghost danger" id="btn-del-task">删除</button>
       <button type="button" class="ghost" id="btn-key-task">设为今日关键</button>
       <span class="spacer"></span>
-      <button value="cancel" class="ghost">取消</button>
+      <button type="button" class="ghost" id="btn-cancel-task">取消</button>
       <button value="ok" class="primary">保存</button>
     </div>
   </form>

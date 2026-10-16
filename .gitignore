@@ -3,7 +3,10 @@
 .npm-cache/
 **/.npm-cache/
 website/
+deploy-site/
 **/dist/
+worker/.dev.vars
+worker/.wrangler/
 
 # 备份/镜像文件：里面是你的学习记忆，按需自己决定要不要提交
 学习助手*.json

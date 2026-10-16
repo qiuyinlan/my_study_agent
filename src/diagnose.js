@@ -13,6 +13,7 @@
 
 import { loadSettings, apiUrl, DEFAULTS } from './config.js';
 import { TOOL_DEFS, toolsForTurn } from './tools.js';
+import { getTestAccess, workerConfigured } from './workerApi.js';
 
 const truncate = (s, n = 700) => {
   const t = String(s ?? '');
@@ -98,7 +99,9 @@ export async function runDiagnostics(onStep = () => {}) {
   const push = (step) => { steps.push(step); onStep(step, steps.length); return step; };
 
   /* ── 0. 本地配置 ── */
-  push(s.apiKey
+  push(workerConfigured()
+    ? info('DeepSeek API Key', '由站点 Worker 保存，浏览器不接触站长密钥')
+    : s.apiKey
     ? ok('API Key 已填写', `${s.apiKey.slice(0, 6)}…${s.apiKey.slice(-4)}（共 ${s.apiKey.length} 字符）`)
     : bad('API Key 已填写', '没有填写。先去设置里填上。'));
   push(info('API 地址', s.baseUrl));
@@ -117,6 +120,19 @@ export async function runDiagnostics(onStep = () => {}) {
   push(schemaProblems.length
     ? bad('工具定义结构检查', `发现 ${schemaProblems.length} 个问题：${schemaProblems.slice(0, 3).join('；')}`)
     : ok('工具定义结构检查', `${TOOL_DEFS.length} 个工具结构合法`));
+
+  if (workerConfigured()) {
+    try {
+      const { access } = await getTestAccess();
+      if (!access.authenticated) push(bad('后端账号登录', '请先登录测试账号'));
+      else if (!access.entitled) push(bad('后端体验权限', '账号尚未兑换有效体验码'));
+      else push(ok('后端体验权限', `有效至 ${access.expiresAt}；剩余 ${access.remainingRequests} 次，今日剩余 ${access.dailyRemaining} 次`));
+    } catch (error) {
+      push(bad('Worker 后端连接', error.message || String(error)));
+    }
+    push(info('DeepSeek 请求', '诊断没有发送计费请求；正式对话由 Worker 代理并记录用量'));
+    return { steps, verdict: '后端模式诊断完成；设置中的「测试连接」会验证登录与体验权限。', raw: '', report: '' };
+  }
 
   if (!s.apiKey) {
     return { steps, verdict: '没填 API Key，后面的网络测试跳过。', raw: '', report: '' };

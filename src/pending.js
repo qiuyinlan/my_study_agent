@@ -42,7 +42,10 @@ async function writeAll(list) {
  */
 export async function addPending({ tool, args, label, detail = '', danger = false, sessionId = '', operationId = '' }) {
   const list = await readAll();
-  const rest = list.filter(p => p.tool !== tool);
+  // Keep separate cards for separate tool calls; retain legacy deduplication when no operation id exists.
+  const rest = operationId
+    ? list.filter(p => p.operationId !== operationId)
+    : list.filter(p => p.tool !== tool);
   const rec = {
     id: uid('pend_'),
     tool,

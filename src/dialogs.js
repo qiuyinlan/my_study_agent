@@ -27,6 +27,8 @@ import {
   getDailyReviewSyncStatus, signInDailyReview, signUpDailyReview, signOutDailyReview,
 } from './dailyReview.js';
 import { getPrivateSyncStatus, getStorageUsage, refreshPrivateSyncSession } from './privateSync.js';
+import { getTestAccess, redeemTestCode } from './workerApi.js';
+import { workerConfigured } from './workerApi.js';
 
 const OFFICIAL_BASE = 'https://api.deepseek.com';
 
@@ -49,6 +51,15 @@ function updateBaseUrlNotice() {
 export async function openSettings({ onChange, profile, onBackup, onExport }) {
   const dlg = $('#dlg-settings');
   const s = loadSettings();
+  const proxyMode = workerConfigured();
+  $('#set-key-label').hidden = proxyMode;
+  $('#set-key').hidden = proxyMode;
+  $('#set-persist').closest('.row').hidden = proxyMode;
+  $('#set-key-hint').textContent = proxyMode
+    ? 'AI 请求由站点后端代理，需登录并兑换有效测试码；你的浏览器不保存 DeepSeek Key。'
+    : '个人直连模式下，Key 只保存在这台电脑的浏览器里。';
+  $('#set-baseurl').closest('label').hidden = proxyMode;
+  $('#baseurl-note').hidden = proxyMode;
 
   /** 收集表单并落盘。诊断前也要先存，否则测的是旧 Key。 */
   const collectAndSave = async () => {
@@ -113,6 +124,27 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
       node.textContent = `存储用量读取失败：${error.message || String(error)}`;
     }
   };
+  const refreshTestAccess = async () => {
+    const status = $('#test-access-status');
+    const history = $('#test-redeem-history');
+    if (!status || !history) return;
+    status.textContent = '正在读取体验权限…';
+    history.textContent = '';
+    try {
+      const { access, history: rows } = await getTestAccess();
+      if (!access.authenticated) status.textContent = '请先登录测试账号';
+      else if (!access.entitled) status.textContent = `已登录：${access.user?.email || ''} · 尚未兑换测试权限`;
+      else {
+        const expiry = new Date(access.expiresAt).toLocaleString();
+        status.textContent = `测试权限有效至 ${expiry} · 剩余 ${access.remainingRequests} 次 · 今日剩余 ${access.dailyRemaining} 次`;
+      }
+      history.textContent = rows.length
+        ? `最近兑换：${rows.map(row => `${row.code_type} · ${new Date(row.created_at).toLocaleDateString()} · ${row.status}`).join('；')}`
+        : '暂无兑换记录';
+    } catch (error) {
+      status.textContent = error.message || String(error);
+    }
+  };
   updateReviewSyncStatus();
   updatePrivateSyncStatus();
   await updateStorageUsage();
@@ -133,6 +165,8 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
       $('#review-sync-login').onclick = null;
       $('#review-sync-signup').onclick = null;
       $('#review-sync-logout').onclick = null;
+      $('#btn-test-redeem').onclick = null;
+      $('#btn-test-access-refresh').onclick = null;
       $('#btn-refresh-storage').onclick = null;
       $('#btn-delete-all-conversations').onclick = null;
       $('#btn-delete-profile').onclick = null;
@@ -173,6 +207,23 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
     $('#review-sync-login').onclick = () => runReviewAuth('login');
     $('#review-sync-signup').onclick = () => runReviewAuth('signup');
     $('#review-sync-logout').onclick = () => runReviewAuth('logout');
+    $('#btn-test-access-refresh').onclick = () => { void refreshTestAccess(); };
+    $('#btn-test-redeem').onclick = async () => {
+      const codeInput = $('#test-redeem-code');
+      const status = $('#test-access-status');
+      const code = codeInput.value.trim();
+      if (!code) { status.textContent = '请输入测试兑换码'; return; }
+      status.textContent = '正在兑换…';
+      try {
+        const result = await redeemTestCode(code);
+        codeInput.value = '';
+        status.textContent = `兑换成功 · 有效至 ${new Date(result.expiresAt).toLocaleString()} · 共 ${result.remainingRequests} 次请求`;
+        await refreshTestAccess();
+      } catch (error) {
+        status.textContent = error.message || String(error);
+      }
+    };
+    void refreshTestAccess();
     $('#btn-refresh-storage').onclick = () => { void updateStorageUsage(); };
     $('#btn-delete-all-conversations').onclick = async () => {
       if (!confirm('删除本机保存的全部对话；登录云同步后也会删除云端副本。学习档案、任务和复盘不会删除。')) return;
@@ -199,7 +250,7 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
           apiKey: $('#set-key').value.trim(),
         });
         el.className = 'status ok';
-        el.textContent = `连接成功。可用模型：${r.models.join('、') || '(未返回列表)'}`;
+        el.textContent = r.proxy ? '后端连接正常，测试权限有效。' : `连接成功。可用模型：${r.models.join('、') || '(未返回列表)'}`;
       } catch (e) {
         el.className = 'status err';
         el.textContent = `失败：${e.message}`;
@@ -420,12 +471,16 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
     ? `<span class="hint">${meta.join('　·　')}<br>（这些字段由代码记录，不手工修改）</span>`
     : '';
 
+  // dialog 会保留上一次 close(value) 的 returnValue；每次打开前必须清空，
+  // 否则新建弹窗点击“取消”可能被误判成保存。
+  dlg.returnValue = '';
   dlg.showModal();
   return new Promise(resolve => {
     const onClose = async () => {
       dlg.removeEventListener('close', onClose);
       $('#btn-del-task').onclick = null;
       $('#btn-key-task').onclick = null;
+      $('#btn-cancel-task').onclick = null;
       if (dlg.returnValue !== 'ok') return resolve(false);
 
       try {
@@ -459,6 +514,7 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
       }
     };
     dlg.addEventListener('close', onClose);
+    $('#btn-cancel-task').onclick = () => dlg.close('cancel');
 
     $('#btn-key-task').onclick = async () => {
       if (!task) return;
@@ -844,7 +900,7 @@ export async function openPlan(planId = null, { onChanged } = {}) {
       const stages = JSON.parse($('#plan-stages').value || '[]');
       if (!Array.isArray(stages)) throw new Error('阶段必须是数组');
       const items = stages.flatMap(stage => stage.tasks || []);
-      const check = checkFeasibility({ items, availableMin: $('#plan-available').value });
+      const check = checkFeasibility({ stages, deadline: $('#plan-deadline').value, availableMin: $('#plan-available').value });
       $('#plan-meta').innerHTML = `<span class="hint">${stages.length} 个阶段 · ${items.length} 个子任务。${esc(check.verdict)}</span>`;
     } catch (error) {
       $('#plan-meta').innerHTML = `<span class="status err">阶段 JSON 格式有误：${esc(error.message)}</span>`;

@@ -1,7 +1,7 @@
 import { getMeta, setMeta } from './db.js';
 import { uid, nowISO } from './util.js';
 import {
-  getToolArgumentSchema, TOOL_DEFS, validateToolArguments, WRITE_TOOL_NAMES,
+  explicitlyRequestsUnscheduledTask, getToolArgumentSchema, TOOL_DEFS, validateToolArguments, WRITE_TOOL_NAMES,
 } from './tools.js';
 
 export const ACTION_PLAN_TOOL = {
@@ -25,6 +25,8 @@ export const ACTION_PLAN_TOOL = {
               title: { type: 'string', description: '新待办的简洁标题，保留用户原意；未知时省略并列入 questions。' },
               goal: { type: 'string', description: '用户明确表达的目标，可留空。' },
               dueAt: { type: 'string', description: '明确日期 YYYY-MM-DD；未说明时留空。' },
+              plannedStart: { type: 'string', description: '用户明确约定的执行时间；未说明时留空。' },
+              dateMode: { type: 'string', enum: ['unscheduled'], description: '仅用户明确表示时间未定或不用记录日期时使用。' },
               estimateMin: { type: 'integer', description: '明确预计时长；未说明时省略。' },
               area: { type: 'string', enum: ['study', 'work', 'life', 'other'] },
               category: { type: 'string', enum: ['important', 'chore'] },
@@ -80,7 +82,7 @@ export const WRITE_TOOL_CATALOG = TOOL_DEFS
   .map(item => `${item.function.name}: ${item.function.description}\n${JSON.stringify(item.function.parameters)}`)
   .join('\n');
 
-export function parseGenericWritePlan(raw) {
+export function parseGenericWritePlan(raw, { userText = '', existingTaskTitles = [] } = {}) {
   let value;
   try {
     value = typeof raw === 'string' ? JSON.parse(raw || '{}') : raw;
@@ -101,6 +103,14 @@ export function parseGenericWritePlan(raw) {
       : {};
     const schema = getToolArgumentSchema(item.tool);
     const missingFields = (schema?.required || []).filter(key => !Object.hasOwn(args, key));
+    if (item.tool === 'save_task') {
+      const hasDate = Boolean(String(args.dueAt || '').trim() || String(args.plannedStart || '').trim());
+      const mayBeUnscheduled = args.category === 'chore'
+        || (args.dateMode === 'unscheduled' && explicitlyRequestsUnscheduledTask(userText));
+      const existingTask = args.id || existingTaskTitles.includes(String(args.title || '').trim());
+      if (!hasDate && !mayBeUnscheduled && !existingTask) missingFields.push('date');
+      if (!hasDate && args.dateMode === 'unscheduled' && !mayBeUnscheduled) delete args.dateMode;
+    }
     const validationError = validateToolArguments(item.tool, args);
     if (missingFields.length) {
       return { kind: item.tool, args, status: 'needs_info', missingFields, validationError };
@@ -133,9 +143,13 @@ export function shouldPlanActions(text) {
 export function isPotentialWriteRequest(text) {
   const value = String(text || '').trim();
   if (!value || QUESTION_ONLY.test(value)) return false;
+  const explicitWrite = /(?:帮我|替我|请|麻烦|把|将|给我).{0,36}(?:保存|登记|补记|记录|新建|创建|添加|加入|更新|修改|删除|移除|开始|启动|结束|停止|暂停|恢复|完成|标记|设定|设为|设成|打卡|复盘|归档|兑换)/u.test(value);
+  const narrative = /(?:我打算|我计划|我准备|我感觉|我觉得|我担心|最怕的是|可能.{0,8}才|然后开始|之后.{0,8}开始)/u.test(value);
+  const directAsk = /(?:帮我|替我|请|麻烦).{0,24}(?:登记|补记|记录|加入待办|添加到待办|加到待办|新建待办|创建待办|新增任务|创建任务|加进任务|加到任务)/u.test(value);
+  if (narrative && !directAsk) return false;
   if (/(?:导出|下载|备份).{0,12}(?:记录|数据|档案)?/u.test(value)
     && !/(?:保存|登记|补记|新建|创建|添加|加入|更新|修改|删除|移除|设定|设为|设成|打卡|复盘|兑换)/u.test(value)) return false;
-  if (/(?:帮我|替我|请|麻烦|把|将|给我).{0,36}(?:保存|登记|补记|记录|新建|创建|添加|加入|更新|修改|删除|移除|开始|启动|结束|停止|暂停|恢复|完成|标记|设定|设为|设成|打卡|复盘|归档|兑换)/u.test(value)) return true;
+  if (explicitWrite) return true;
   return WRITE_VERBS.test(value) && WRITE_TARGETS.test(value) && !/(?:怎么|如何|为什么|为何|是否|能不能|可不可以|有没有)/u.test(value);
 }
 
@@ -144,7 +158,7 @@ export function shouldPlanGenericWriteActions(text) {
   return isPotentialWriteRequest(text) && !shouldPlanActions(text) && !timerLifecycleRequest;
 }
 
-export function parseActionPlan(raw) {
+export function parseActionPlan(raw, { userText = '' } = {}) {
   let value;
   try {
     value = typeof raw === 'string' ? JSON.parse(raw || '{}') : raw;
@@ -180,9 +194,13 @@ export function parseActionPlan(raw) {
     const title = String(item.title || '').trim();
     const missingFields = title ? [] : ['title'];
     const args = title ? { title } : {};
-    for (const key of ['goal', 'dueAt', 'area', 'category', 'priority']) {
+    for (const key of ['goal', 'dueAt', 'area', 'category', 'priority', 'plannedStart', 'dateMode']) {
       if (typeof item[key] === 'string' && item[key].trim()) args[key] = item[key].trim();
     }
+    const hasDate = Boolean(String(args.dueAt || '').trim() || String(args.plannedStart || '').trim());
+    const mayBeUnscheduled = args.category === 'chore'
+      || (args.dateMode === 'unscheduled' && explicitlyRequestsUnscheduledTask(userText));
+    if (!hasDate && !mayBeUnscheduled) missingFields.push('date');
     if (Number.isInteger(item.estimateMin) && item.estimateMin >= 0) args.estimateMin = item.estimateMin;
     return { kind: item.kind, status: missingFields.length ? 'needs_info' : 'requested', missingFields, args };
   });

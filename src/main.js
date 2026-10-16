@@ -18,9 +18,11 @@ import { computeToday, todayCards } from './planner.js';
 import { runTurn } from './agent.js';
 import {
   ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession, setTaskCompletion, addMessage,
+  listTasks, deleteTask, upsertTask,
   cleanupOldCompletedTasks,
 } from './db.js';
 import { loadSettings } from './config.js';
+import { workerConfigured } from './workerApi.js';
 import {
   openSettings, openBackup, openTask, openTopic, openReview, openSessions,
   openProfile, openKeyTasks, openPlan, openSop, openRewardEditor,
@@ -40,13 +42,14 @@ import { executeTool } from './tools.js';
 import { listPending, removePending, clearPending } from './pending.js';
 import { listChatWrites, removeChatWrites } from './chat-approvals.js';
 import { recordAction } from './operation-plan.js';
-import { debounce } from './util.js';
-import { togglePlanTask, completePlanTaskSlice, movePlanStage, activatePlanStage, planStages } from './docs.js';
+import { debounce, dateStr } from './util.js';
+import { togglePlanTask, completePlanTaskSlice, movePlanStage, activatePlanStage, planStages, schedulePlanTasks, getPlan } from './docs.js';
 
 const chat = createChatView($('#messages'));
 
 let busy = false;
 let controller = null;
+let turnErrorRendered = false;
 let todayState = null;
 let profile = null;
 /** 上一次算好的卡片。switchPanel 复用它，避免在数据未就绪时用残缺对象重算而崩。 */
@@ -288,6 +291,7 @@ async function refreshChat() {
 async function refreshPending() {
   const s = await ensureSession();
   const [actions, drafts] = await Promise.all([listPending(s.id), listChatWrites(s.id)]);
+  const previousIds = new Set($$('#pending-area [data-pending]').map(node => node.dataset.pending));
   const draftActions = drafts.map(item => ({
     ...item,
     label: `保存${({ save_memory: '长期记忆', update_profile: '档案', save_task: '任务', log_study: '学习记录', save_checkin: '打卡', save_review: '复盘', add_topic: '知识点' })[item.tool] || '记录'}`,
@@ -295,8 +299,20 @@ async function refreshPending() {
     danger: false,
     chatDraft: true,
   }));
+  const draftLabels = {
+    save_memory: '长期记忆', update_profile: '档案', save_task: '任务', set_task_state: '任务状态',
+    log_study: '学习记录', log_time_entry: '耗时记录', save_checkin: '打卡', save_review: '复盘',
+    save_plan: '计划', save_sop: '流程', add_topic: '知识点', manage_micro_habit: '微习惯',
+    manage_life_navigation: '生活导航', upsert_reward: '奖励',
+  };
+  draftActions.forEach((item, index) => {
+    const tool = drafts[index]?.tool;
+    if (draftLabels[tool]) item.label = `保存${draftLabels[tool]}`;
+  });
+  if ((draftActions.length || actions.length) && workspaceMode !== 'chat') setWorkspaceMode('chat');
   renderPendingArea([...draftActions, ...actions], {
     onConfirm: confirmPending,
+    onConfirmAll: confirmAllPending,
     onDismiss: async (id) => {
       if (id.startsWith('chat_approval_')) {
         const draft = drafts.find(item => item.id === id);
@@ -323,12 +339,40 @@ async function refreshPending() {
       await refreshPending();
     },
   });
+  if ([...drafts, ...actions].some(item => !previousIds.has(item.id))) chat.revealPending();
+}
+
+let confirmingAllPending = false;
+
+/** Execute a snapshot serially so IndexedDB writes and panel refreshes do not race. */
+async function confirmAllPending() {
+  if (confirmingAllPending) return;
+  confirmingAllPending = true;
+  try {
+    const s = await ensureSession();
+    const [actions, drafts] = await Promise.all([listPending(s.id), listChatWrites(s.id)]);
+    const ids = [...drafts.map(item => item.id), ...actions.map(item => item.id)];
+    for (const id of ids) await confirmPending(id);
+    await refreshPending();
+  } finally {
+    confirmingAllPending = false;
+  }
 }
 
 function describeChatDraft(item) {
   const args = item.args || {};
   if (item.tool === 'save_memory') return args.text || '长期记忆草稿';
-  if (item.tool === 'save_task') return args.title || '新任务';
+  if (item.tool === 'save_task') {
+    const categories = { important: '任务', chore: '杂事' };
+    return [
+      args.title || '新任务',
+      `分类：${categories[args.category] || args.category || '任务'}`,
+      args.dueAt && `日期：${args.dueAt}`,
+      args.plannedStart && `执行时间：${args.plannedStart}`,
+      args.estimateMin != null && args.estimateMin !== '' && `预计耗时：${args.estimateMin} 分钟`,
+      args.dateMode === 'unscheduled' && '日期：不记录',
+    ].filter(Boolean).join(' · ');
+  }
   if (item.tool === 'log_study') return [args.topic, args.what, args.minutes && `${args.minutes} 分钟`].filter(Boolean).join(' · ');
   if (item.tool === 'save_checkin') return Object.entries(args).filter(([, value]) => value !== '' && value != null).map(([key, value]) => `${key}：${value}`).join(' · ');
   if (item.tool === 'save_review') return [args.kind, args.action, args.actual].filter(Boolean).join(' · ');
@@ -357,10 +401,12 @@ async function confirmPending(pendingId) {
       if (out.error) throw new Error(out.content || '保存失败');
       if (item.tool === 'update_profile' && aboutInterview.active) setAboutInterviewActive(false);
       await removeChatWrites([pendingId]);
-      await addMessage({ sessionId: item.sessionId || s.id, role: 'assistant', content: out.content || `已保存：${item.tool}` });
-      toast(out.summary || '已保存', 'ok');
+      // Keep detailed tool output in the ledger, and keep the chat receipt concise.
+      await addMessage({ sessionId: item.sessionId || s.id, role: 'assistant', content: '用户已确认，任务已保存。' });
+      toast('已保存', 'ok');
       await refreshChat();
       await refreshAll();
+      if (out.openPanel) await switchPanel(out.openPanel);
     } catch (e) {
       toast(`保存失败：${e.message}`, 'err');
     }
@@ -396,6 +442,7 @@ async function confirmPending(pendingId) {
       out.error ? 'err' : 'ok');
 
     await refreshAll();                       // 计时条、面板都跟着更新
+    if (out.openPanel) await switchPanel(out.openPanel);
     setTimeout(() => { refreshPending(); }, 1100);  // 让"已执行"停留一会儿再收走
   } catch (e) {
     toast(`执行失败：${e.message}`, 'err');
@@ -493,6 +540,7 @@ async function handleEvent(e) {
     case 'notice': chat.notice(e.text); break;
     case 'aborted': chat.notice('已中断'); break;
     case 'error':
+      turnErrorRendered = true;
       chat.fail(e.error, { raw: e.raw, kind: e.kind, status: e.status });
       break;
     case 'refresh': refreshAllDebounced(); break;
@@ -522,7 +570,7 @@ async function send(text, { skipIntent = false } = {}) {
   }
 
   const settings = loadSettings();
-  if (!settings.apiKey) {
+  if (!workerConfigured() && !settings.apiKey) {
     toast('还没填 API Key，先打开设置填一下', 'err');
     await openSettings({ onChange: refreshAll, profile });
     return;
@@ -549,8 +597,10 @@ async function send(text, { skipIntent = false } = {}) {
   busy = true;
   setBusy(true);
   controller = new AbortController();
+  turnErrorRendered = false;
 
   chat.appendUser(content, profile);
+  chat.startAssistant(profile);
 
   try {
     await runTurn({
@@ -565,7 +615,9 @@ async function send(text, { skipIntent = false } = {}) {
     if (e?.name === 'AbortError') chat.notice('已中断');
     else {
       console.error('[send]', e);
-      chat.fail(e?.message || String(e), { raw: e?.raw || '', kind: e?.kind || '', status: e?.status ?? null });
+      if (!turnErrorRendered) {
+        chat.fail(e?.message || String(e), { raw: e?.raw || '', kind: e?.kind || '', status: e?.status ?? null });
+      }
     }
   } finally {
     busy = false;
@@ -588,6 +640,7 @@ const handlers = {
   onDaybookChanged: () => refreshAll(),
   onOpenTask: id => openTask(id, { onChanged: refreshAll, onKeyTask: refreshAll }),
   onNewTask: () => openTask(null, { onChanged: refreshAll }),
+  onTaskDateChanged: () => renderChrome(),
   onToggleTask: async (id, completed) => {
     await setTaskCompletion(id, completed);
     await refreshAll();
@@ -597,10 +650,24 @@ const handlers = {
   onReview: () => openReview({ onChanged: refreshAll }),
   onOpenPlan: id => openPlan(id, { onChanged: refreshAll }),
   onNewPlan: () => openPlan(null, { onChanged: refreshAll }),
-  onTogglePlanTask: async (planId, stageId, taskId, allocatedMin = null) => {
-    const updated = allocatedMin === null
-      ? await togglePlanTask(planId, stageId, taskId)
-      : await completePlanTaskSlice(planId, stageId, taskId, allocatedMin);
+  onTogglePlanTask: async (planId, stageId, taskId, allocatedMin = null, checked = true, generated = false) => {
+    let updated;
+    if (allocatedMin === null || !generated) {
+      updated = await togglePlanTask(planId, stageId, taskId);
+    } else {
+      const planBefore = await getPlan(planId);
+      const stageBefore = planBefore ? planStages(planBefore).find(item => item.id === stageId) : null;
+      const taskBefore = stageBefore?.tasks.find(item => item.id === taskId);
+      const marker = `plan:${planId}:${stageId}:${taskId}`;
+      const existing = (await listTasks()).find(item => item.notes === marker && item.dueAt === dateStr() && item.state !== 'CANCELLED');
+      if (taskBefore && checked && !existing) {
+        await upsertTask({ title: taskBefore.text, category: 'important', dueAt: dateStr(), estimateMin: allocatedMin, area: 'study', notes: marker });
+      } else if (!checked && existing) {
+        await deleteTask(existing.id);
+      }
+      updated = planBefore;
+    }
+    planScheduleResult = { ...schedulePlanTasks(updated, planScheduleBudget * 60), planId, planUpdatedAt: updated.updatedAt };
     const stage = planStages(updated).find(item => item.id === stageId);
     if (stage?.status === 'done') {
       const ordered = planStages(updated);
@@ -762,7 +829,7 @@ function wireTopbar() {
 
     // “聊聊我”使用独立会话，避免把档案访谈混进日常对话。
     // 没有 API Key 时先沿用 send() 的设置提示，不额外创建空会话。
-    if (!loadSettings().apiKey) {
+    if (!workerConfigured() && !loadSettings().apiKey) {
       await send(prompt);
       return;
     }
@@ -837,8 +904,9 @@ async function boot() {
   loadUiState();
   await cleanupOldCompletedTasks();
   pruneMicroHabitHistory();
-  showPanel(uiState.currentPanel || 'tasks');
-  workspaceMode = uiState.workspaceMode === 'chat' ? 'chat' : 'content';
+  // 每次打开应用先进入任务页；用户仍可从导航进入 AI 对话。
+  showPanel('tasks');
+  workspaceMode = 'content';
   applyUiState();
   wireComposer();
   wireTopbar();
@@ -875,7 +943,7 @@ async function boot() {
   }
 
   // 没有 Key 时不再每次启动强制弹出设置；发送消息时会按需打开。
-  if (loadSettings().apiKey && !profile.onboardedAt) {
+  if ((workerConfigured() || loadSettings().apiKey) && !profile.onboardedAt) {
     // §4：初始化没完成就提示开始
     toast('学习档案还未整理。点击「聊聊我」开始逐题访谈。');
   }

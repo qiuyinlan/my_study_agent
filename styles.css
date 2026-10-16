@@ -696,6 +696,12 @@ body.resizing iframe, body.resizing textarea { pointer-events: none; }
 .pending-area.on { display: flex; padding-bottom: 8px; }
 .pending-message { width: 100%; max-width: none; }
 .pending-message .bubble { width: 100%; }
+.pending-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 8px; padding: 0 2px;
+}
+.pending-count { color: var(--fg-2); font-size: 12px; }
+.pending-toolbar button { padding: 6px 14px; font-size: 13px; }
 
 .task-summary { display: flex; align-items: baseline; gap: 9px; color: var(--fg-2); font-size: 12px; white-space: nowrap; }
 .task-summary strong { color: var(--fg); font-size: 13px; }
@@ -1077,10 +1083,15 @@ body {
 .task-calendar svg { width:18px; height:18px; }
 .task-calendar input { position:absolute; inset:0; width:100%; height:100%; padding:0; opacity:0; cursor:pointer; }
 .task-date-strip { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; margin-bottom:20px; }
+.task-date-nav { display:flex; align-items:stretch; gap:6px; margin-bottom:20px; }
+.task-date-nav > .icon-btn { flex:0 0 32px; align-self:center; }
+.task-date-nav .task-date-strip { flex:1; min-width:0; margin-bottom:0; }
 .task-date { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-width:0; min-height:68px; padding:6px 2px; border:1px solid var(--line); border-radius:6px; background:#fff; }
 .task-date small { color:var(--fg-faint); font-size:10px; }
 .task-date strong { font-size:16px; line-height:1.2; }
 .task-date i { color:var(--fg-faint); font-size:9px; font-style:normal; white-space:nowrap; }
+.task-date.has-tasks { border-color:var(--accent-line); background:var(--bg-active); }
+.task-date.has-tasks strong, .task-date.has-tasks i { color:var(--accent); }
 .task-date.selected { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
 .task-date.selected small, .task-date.selected i { color:var(--accent); }
 .task-section-title { margin:18px 0 8px; padding-bottom:7px; border-bottom:1px solid var(--line-soft); color:var(--fg); font-size:14px; font-weight:650; }

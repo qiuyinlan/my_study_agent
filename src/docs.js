@@ -84,10 +84,12 @@ export function planStages(plan) {
 
 /**
  * 可行性检查（§14 第四轮）。
- * @returns {{totalMin:number, availableMin:number|null, overBy:number|null, feasible:boolean|null, verdict:string}}
+ * @returns {{totalMin:number, availableMin:number|null, capacityMin?:number|null, periodDays?:number|null, overBy:number|null, feasible:boolean|null, verdict:string}}
  */
 export function checkFeasibility(plan) {
-  const items = (Array.isArray(plan?.stages) && plan.stages.length
+  const hasStages = Array.isArray(plan?.stages) && plan.stages.length > 0;
+  const stages = hasStages ? plan.stages.map(normalizePlanStage) : [];
+  const items = (hasStages
     ? plan.stages.flatMap(stage => stage.tasks || [])
     : (plan?.items || [])).map(normalizePlanItem);
   const totalMin = items.reduce((s, it) => s + (it.estMin || 0), 0);
@@ -106,22 +108,52 @@ export function checkFeasibility(plan) {
     };
   }
 
-  const overBy = totalMin - availableMin;
+  let periodDays = null;
+  if (hasStages) {
+    const deadline = String(plan?.deadline || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
+      const today = new Date(`${dateStr()}T00:00:00`);
+      const due = new Date(`${deadline}T00:00:00`);
+      if (!Number.isNaN(due.getTime())) {
+        periodDays = Math.max(0, Math.floor((due - today) / 86400000) + 1);
+      }
+    }
+    if (periodDays === null) {
+      const durations = stages.map(stage => {
+        const match = String(stage.estimate || '').match(/(\d+(?:\.\d+)?)\s*(天|日|周|星期)/);
+        if (!match) return null;
+        return Number(match[1]) * (match[2] === '周' || match[2] === '星期' ? 7 : 1);
+      });
+      if (durations.length && durations.every(days => days !== null)) {
+        periodDays = Math.ceil(durations.reduce((sum, days) => sum + days, 0));
+      }
+    }
+    if (periodDays === null) {
+      return {
+        totalMin, availableMin, capacityMin: null, periodDays: null,
+        overBy: null, feasible: null, unestimated,
+        verdict: `阶段任务共预计 ${totalMin} 分钟；没有截止日期或阶段周期，无法拿单日可用时间判断整个规划是否过载。`,
+      };
+    }
+  }
+
+  const capacityMin = hasStages ? availableMin * periodDays : availableMin;
+  const overBy = totalMin - capacityMin;
   if (overBy > 0) {
     return {
-      totalMin, availableMin, overBy, feasible: false, unestimated,
-      verdict: `**计划过载**：预计需要 ${totalMin} 分钟，但可用时间只有 ${availableMin} 分钟，超出 ${overBy} 分钟。必须缩减范围。`,
+      totalMin, availableMin, capacityMin, periodDays, overBy, feasible: false, unestimated,
+      verdict: `**计划过载**：预计需要 ${totalMin} 分钟，但${hasStages ? `到截止日期共 ${periodDays} 天，按每天 ${availableMin} 分钟可用 ${capacityMin} 分钟` : `可用时间只有 ${capacityMin} 分钟`}，超出 ${overBy} 分钟。需要调整范围或周期。`,
     };
   }
-  if (overBy < -availableMin * 0.3) {
+  if (overBy < -capacityMin * 0.3) {
     return {
-      totalMin, availableMin, overBy, feasible: true, unestimated,
-      verdict: `计划偏轻：只用了 ${totalMin} / ${availableMin} 分钟。可以加一项，或者接受一个轻松的节奏。`,
+      totalMin, availableMin, capacityMin, periodDays, overBy, feasible: true, unestimated,
+      verdict: `计划可行：预计 ${totalMin} 分钟，周期容量 ${capacityMin} 分钟${periodDays ? `（${periodDays} 天 × 每天 ${availableMin} 分钟）` : ''}。可以加任务，或保持当前节奏。`,
     };
   }
   return {
-    totalMin, availableMin, overBy, feasible: true, unestimated,
-    verdict: `计划可行：${totalMin} / ${availableMin} 分钟${unestimated ? `（有 ${unestimated} 项没估时）` : ''}。`,
+    totalMin, availableMin, capacityMin, periodDays, overBy, feasible: true, unestimated,
+    verdict: `计划可行：预计 ${totalMin} / ${capacityMin} 分钟${periodDays ? `（${periodDays} 天 × 每天 ${availableMin} 分钟）` : ''}${unestimated ? `（有 ${unestimated} 项没估时）` : ''}。`,
   };
 }
 
@@ -176,7 +208,10 @@ export async function savePlan({
   if (!rec.name) throw new Error('规划必须有名称');
 
   const feas = checkFeasibility(rec);
-  rec.feasibility = { totalMin: feas.totalMin, overBy: feas.overBy, feasible: feas.feasible };
+  rec.feasibility = {
+    totalMin: feas.totalMin, capacityMin: feas.capacityMin ?? null,
+    periodDays: feas.periodDays ?? null, overBy: feas.overBy, feasible: feas.feasible,
+  };
 
   await db.plans.put(rec);
   notifyPrivateDataChanged();
@@ -186,12 +221,39 @@ export async function savePlan({
 export async function listPlans({ status, limit = 50 } = {}) {
   let all = await db.plans.toArray();
   if (status) all = all.filter(p => p.status === status);
+  all = all.map(plan => {
+    const feasibility = checkFeasibility(plan);
+    return {
+      ...plan,
+      feasibility: {
+        totalMin: feasibility.totalMin,
+        capacityMin: feasibility.capacityMin ?? null,
+        periodDays: feasibility.periodDays ?? null,
+        overBy: feasibility.overBy,
+        feasible: feasibility.feasible,
+      },
+    };
+  });
   return all
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
     .slice(0, limit);
 }
 
-export const getPlan = id => db.plans.get(id);
+export async function getPlan(id) {
+  const plan = await db.plans.get(id);
+  if (!plan) return undefined;
+  const feasibility = checkFeasibility(plan);
+  return {
+    ...plan,
+    feasibility: {
+      totalMin: feasibility.totalMin,
+      capacityMin: feasibility.capacityMin ?? null,
+      periodDays: feasibility.periodDays ?? null,
+      overBy: feasibility.overBy,
+      feasible: feasibility.feasible,
+    },
+  };
+}
 export async function deletePlan(id) {
   await db.plans.delete(id);
   notifyPrivateDataChanged();

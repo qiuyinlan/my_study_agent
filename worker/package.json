@@ -1,0 +1,8 @@
+{
+  "name": "my-study-agent-worker",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "wrangler": "^4.151.0"
+  }
+}

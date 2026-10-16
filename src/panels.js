@@ -7,7 +7,7 @@ import { $, $$, esc, toast, stateBadge, priorityBadge, masteryDots, fmtMin, icon
 import {
   db, listTasks, listTopics, getProfile, profileCompletion,
   PRIORITIES, AREAS, DEFAULT_PROFILE,
-  getMeta, setKeyTasks,
+  getMeta,
 } from './db.js';
 import { dueTopics } from './srs.js';
 import { getLedger, listRewards, listPoints, POINT_RULES } from './ledger.js';
@@ -15,9 +15,8 @@ import { listCheckins, listReviews, patternStats, PROCRASTINATION_PATTERNS, isMe
 import { listPlans, listSops, PLAN_STATUSES, PLAN_STAGE_STATUSES, planStages, getActivePlan, setActivePlan, schedulePlanTasks } from './docs.js';
 import { estimationStats, listTimeEntries } from './timer.js';
 import * as daylog from './daylog.js';
-import { renderMicroHabit } from './microhabit.js';
+import { renderMicroHabit, getTodayHabitSnapshot } from './microhabit.js';
 import { renderDailyReview } from './dailyReview.js';
-import { getTaskSyncStatus } from './taskSync.js';
 import { renderLifeNav } from './life.js';
 import {
   endOfToday, fmtDateTime, daysUntil, humanDue, dateStr,
@@ -345,11 +344,10 @@ export async function renderRecords(s, h) {
 
 /* ══════════════ 任务 ══════════════ */
 
-function taskItemHtml(t, keyIds) {
+function taskItemHtml(t) {
   const badges = [];
   badges.push(stateBadge(t.state));
   badges.push(priorityBadge(t.priority));
-  if (keyIds.includes(t.id)) badges.push('<span class="badge key">关键</span>');
   if (t.dueAt) {
     const d = daysUntil(t.dueAt);
     const cls = d < 0 ? 'overdue' : d <= 3 ? 'soon' : '';
@@ -376,58 +374,58 @@ function taskItemHtml(t, keyIds) {
 
 let selectedTaskDate = dateStr();
 
-export function renderTasks(s, h) {
-  const el = $('#view-tasks');
-  if (!el) return;
-  const pendingTasks = s.tasks.filter(task => !['DONE', 'CANCELLED'].includes(task.state));
-  const categoryOf = task => task.category || (['P0', 'P1'].includes(task.priority) ? 'important' : 'chore');
-  const pendingImportant = pendingTasks.filter(task => categoryOf(task) === 'important').length;
-  const pendingChores = pendingTasks.filter(task => categoryOf(task) === 'chore').length;
-  setPanelSub(`待完成 ${pendingImportant}｜${pendingChores}`);
-  const out = ['<div class="tasks-workspace">'];
-  const sync = getTaskSyncStatus();
-  out.push(`<div class="task-toolbar"><div class="task-summary" aria-label="待完成任务数量"><strong>待完成</strong><span data-pending-important>主要任务 ${pendingImportant}</span><span data-pending-chore>杂事 ${pendingChores}</span></div><span id="task-sync-status" class="task-sync-status">${esc(sync.message)}</span></div>`);
-  const keyTasks = s.tasks.filter(task => s.keyTaskIds.includes(task.id));
-  out.push('<section class="task-category"><div class="group-head">今日关键任务 <span class="n">' + keyTasks.length + '</span></div>');
-  out.push(keyTasks.length
-    ? `<div class="list">${keyTasks.map(task => taskItemHtml(task, s.keyTaskIds)).join('')}</div>`
-    : '<div class="empty">今天还没有设关键任务</div>');
-  out.push('</section>');
-  const week = Array.from({ length: 7 }, (_, index) => addDays(dateStr(), index - 6));
-  const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
-  const dateCount = date => s.tasks.filter(task => {
+function tasksForDate(tasks, date) {
+  return tasks.filter(task => {
     if (task.state === 'CANCELLED') return false;
     if (task.state === 'DONE') return task.actualEnd && dateStr(new Date(task.actualEnd)) === date;
     const scheduled = (task.dueAt || task.plannedStart || '').slice(0, 10);
     return scheduled && scheduled <= date;
-  }).length;
+  });
+}
+
+function taskCategory(task) {
+  return task.category || (['P0', 'P1'].includes(task.priority) ? 'important' : 'chore');
+}
+
+function taskDateForStrip(task) {
+  if (!task || task.state === 'CANCELLED') return '';
+  if (task.state === 'DONE') return task.actualEnd ? dateStr(new Date(task.actualEnd)) : '';
+  return (task.dueAt || task.plannedStart || '').slice(0, 10);
+}
+
+export function renderTasks(s, h) {
+  const el = $('#view-tasks');
+  if (!el) return;
+  const dayTasks = tasksForDate(s.tasks, selectedTaskDate);
+  const out = ['<div class="tasks-workspace">'];
+  const week = Array.from({ length: 7 }, (_, index) => addDays(selectedTaskDate, index - 6));
+  const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
+  const dateCount = date => s.tasks.filter(task => taskDateForStrip(task) === date).length;
   out.push(`<div class="task-date-head"><strong>最近七天</strong><label class="task-calendar" title="选择具体日期">${icon('today')}<input type="date" value="${selectedTaskDate}" data-task-date-picker aria-label="选择任务日期"></label></div>`);
   out.push(`<nav class="task-date-strip" aria-label="任务日期">${week.map(date => {
     const d = new Date(`${date}T00:00:00`);
     const today = date === dateStr();
     return `<button type="button" class="task-date ${date === selectedTaskDate ? 'selected' : ''}" data-task-date="${date}" aria-pressed="${date === selectedTaskDate}"><small>${today ? '今天' : `周${shortDays[d.getDay()]}`}</small><strong>${Number(date.slice(-2))}</strong><i>${dateCount(date)} 项</i></button>`;
   }).join('')}</nav>`);
-  const dayTasks = s.tasks.filter(task => {
-    if (task.state === 'CANCELLED') return false;
-    if (task.state === 'DONE') return task.actualEnd && dateStr(new Date(task.actualEnd)) === selectedTaskDate;
-    const scheduled = (task.dueAt || task.plannedStart || '').slice(0, 10);
-    return scheduled && scheduled <= selectedTaskDate;
-  });
   const unplanned = s.tasks.filter(task => !['DONE', 'CANCELLED'].includes(task.state) && !task.dueAt && !task.plannedStart);
-  const appendGroups = (tasks, emptyText) => {
-    for (const [category, label] of [['important', '重要事情'], ['chore', '杂事']]) {
-      const grouped = tasks.filter(task => (task.category || (['P0', 'P1'].includes(task.priority) ? 'important' : 'chore')) === category);
-      out.push(`<section class="task-category"><div class="group-head">${label} <span class="n">${grouped.length}</span></div>`);
-      out.push(grouped.length
-        ? `<div class="list">${grouped.map(task => taskItemHtml(task, s.keyTaskIds)).join('')}</div>`
-        : `<div class="empty">${emptyText}</div>`);
-      out.push('</section>');
-    }
+  const visibleTasks = [...new Map([...dayTasks, ...unplanned].map(task => [task.id, task])).values()]
+    .sort((a, b) => {
+      const dateA = (a.dueAt || a.plannedStart || '').slice(0, 10);
+      const dateB = (b.dueAt || b.plannedStart || '').slice(0, 10);
+      if (!dateA) return dateB ? 1 : 0;
+      if (!dateB) return -1;
+      return dateB.localeCompare(dateA);
+    });
+  const renderTaskGroup = (category, title) => {
+    const tasks = visibleTasks.filter(task => taskCategory(task) === category);
+    out.push(`<section class="task-category"><div class="group-head">${title}</div>`);
+    out.push(tasks.length
+      ? `<div class="list task-list-${category}">${tasks.map(task => taskItemHtml(task)).join('')}</div>`
+      : '<div class="empty">暂无任务</div>');
+    out.push('</section>');
   };
-  out.push(`<div class="task-section-title">${selectedTaskDate === dateStr() ? '今天的任务' : humanDate(selectedTaskDate)}</div>`);
-  appendGroups(dayTasks, '这一天没有排期任务');
-  out.push(`<div class="task-section-title">未安排日期 <span class="n">${unplanned.length}</span></div>`);
-  appendGroups(unplanned, '没有未安排的任务');
+  renderTaskGroup('important', '主要任务');
+  renderTaskGroup('chore', '杂事');
 
   /* 知识点放在任务面板底部，作为学习模块的一部分 */
   if (s.topics.length) {
@@ -442,17 +440,46 @@ export function renderTasks(s, h) {
   out.push('<button type="button" class="habit-add-fab task-add-fab" data-new-task aria-label="添加任务" title="添加任务">＋</button>');
   out.push('</div>');
   el.innerHTML = out.join('');
+  const strip = el.querySelector('.task-date-strip');
+  if (strip) {
+    const nav = document.createElement('div');
+    nav.className = 'task-date-nav';
+    const makeShiftButton = (shift, label, name) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'icon-btn';
+      button.dataset.taskDateShift = String(shift);
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.innerHTML = icon(name);
+      return button;
+    };
+    const previous = makeShiftButton(-1, '前一天', 'chevron-left');
+    const next = makeShiftButton(1, '后一天', 'chevron-right');
+    strip.replaceWith(nav);
+    nav.append(previous, strip, next);
+  }
+  el.querySelectorAll('[data-task-date]').forEach(button => {
+    if (dateCount(button.dataset.taskDate) > 0) button.classList.add('has-tasks');
+  });
   renderMicroHabit(el.querySelector('[data-task-microhabits]'), { onChanged: h?.onMicroHabitChanged, showAddButton: false });
   el.querySelector('[data-new-task]')?.addEventListener('click', () => h.onNewTask?.());
   el.querySelectorAll('[data-task-date]').forEach(button => button.addEventListener('click', () => {
     selectedTaskDate = button.dataset.taskDate;
     renderTasks(s, h);
+    h.onTaskDateChanged?.();
   }));
   el.querySelector('[data-task-date-picker]')?.addEventListener('change', event => {
     if (!event.target.value) return;
     selectedTaskDate = event.target.value;
     renderTasks(s, h);
+    h.onTaskDateChanged?.();
   });
+  el.querySelectorAll('[data-task-date-shift]').forEach(button => button.addEventListener('click', () => {
+    selectedTaskDate = addDays(selectedTaskDate, Number(button.dataset.taskDateShift));
+    renderTasks(s, h);
+    h.onTaskDateChanged?.();
+  }));
   el.querySelectorAll('[data-task-check]').forEach(button => button.addEventListener('click', event => {
     event.stopPropagation();
     h.onToggleTask?.(button.dataset.taskCheck, button.getAttribute('aria-pressed') !== 'true');
@@ -465,10 +492,6 @@ export function renderTasks(s, h) {
 }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('msa:task-sync-status', event => {
-    const node = $('#task-sync-status');
-    if (node) node.textContent = event.detail.message;
-  });
 }
 
 /* ══════════════ 打卡 ══════════════ */
@@ -713,7 +736,10 @@ export async function renderPlans(s, h) {
     <section class="plan-section">
       <div class="plan-section-head"><h3>今日自动规划</h3><div class="plan-schedule-controls"><label>今日可用时长（小时）<input id="plan-day-minutes" type="number" min="0.5" step="0.5" value="${planScheduleBudget}"></label><button class="primary" id="btn-generate-plan" ${!selected ? 'disabled' : ''}>重新生成</button></div></div>
       ${generated?.complete ? `<div class="plan-schedule-note">当前阶段的子任务都已完成。确认后可以切换到下一阶段。</div>` : ''}
-      ${generated?.tasks?.length ? `<ul class="plan-generated-list">${generated.tasks.map(task => `<li><input type="checkbox" data-plan-task="${esc(task.id)}" data-stage-id="${esc(task.sourceStageId)}" data-allocation="${task.allocatedMin}" title="完成本次分配"><strong>${fmtMin(task.allocatedMin)}</strong><span>${esc(task.text)}${task.partial ? '（完成后保留剩余时长）' : ''}${task.exceptionTask ? ` · 例外提前自「${esc(task.sourceStage)}」` : ''}</span></li>`).join('')}</ul>` : (selected ? '<div class="hint">点击“重新生成”按当前阶段优先级安排今日任务。</div>' : '')}
+      ${generated?.tasks?.length ? `<ul class="plan-generated-list">${generated.tasks.map(task => {
+        const addedToday = s.tasks.some(item => item.notes === `plan:${selected.id}:${task.sourceStageId}:${task.id}` && item.dueAt === dateStr() && item.state !== 'CANCELLED');
+        return `<li><input type="checkbox" data-plan-task="${esc(task.id)}" data-stage-id="${esc(task.sourceStageId)}" data-allocation="${task.allocatedMin}" data-plan-generated="1" ${addedToday ? 'checked' : ''} title="加入今日任务"><strong>${fmtMin(task.allocatedMin)}</strong><span>${esc(task.text)}${task.partial ? '（完成后保留剩余时长）' : ''}${task.exceptionTask ? ` · 例外提前自「${esc(task.sourceStage)}」` : ''}</span></li>`;
+      }).join('')}</ul>` : (selected ? '<div class="hint">点击“重新生成”按当前阶段优先级安排今日任务。</div>' : '')}
       ${selected ? `<div class="plan-schedule-note">依据主线「${esc(selected.name)}」·${esc(generated?.stage?.name || current?.name || '当前阶段')}；规则：${esc(typeof selected.priorities === 'string' ? selected.priorities : '按子任务优先级')}。${generated?.remainingMin > 0 ? `剩余 ${fmtMin(generated.remainingMin)}。` : ''}</div>` : ''}
     </section>
     <section class="plan-section">
@@ -725,7 +751,7 @@ export async function renderPlans(s, h) {
   $('#btn-new-plan')?.addEventListener('click', () => h.onNewPlan?.());
   $('#plan-active-select')?.addEventListener('change', async e => { await setActivePlan(e.target.value); planScheduleResult = null; await renderPlans(s, h); });
   $$('[data-plan-edit]', el).forEach(n => { n.onclick = () => h.onOpenPlan?.(n.dataset.planEdit); });
-  $$('[data-plan-task]', el).forEach(n => { n.onchange = async () => h.onTogglePlanTask?.(selected.id, n.dataset.stageId, n.dataset.planTask, n.dataset.allocation ? Number(n.dataset.allocation) : null); });
+  $$('[data-plan-task]', el).forEach(n => { n.onchange = async () => h.onTogglePlanTask?.(selected.id, n.dataset.stageId, n.dataset.planTask, n.dataset.allocation ? Number(n.dataset.allocation) : null, n.checked, n.dataset.planGenerated === '1'); });
   $$('[data-stage-move]', el).forEach(n => { n.onclick = () => h.onMovePlanStage?.(selected.id, n.dataset.stageMove, Number(n.dataset.offset)); });
   $$('[data-stage-activate]', el).forEach(n => { n.onclick = () => h.onActivatePlanStage?.(selected.id, n.dataset.stageActivate); });
   let draggedStageId = '';
@@ -956,14 +982,21 @@ export function panelBadges(s) {
   const blocked = s.blocked?.length || 0;
   const overdue = s.overdue?.length || 0;
   const stale = s.timer?.stale ? 1 : 0;
-  const unfinished = (s.tasks || []).filter(t => !['DONE', 'CANCELLED'].includes(t.state));
-  const important = unfinished.filter(t => (t.category || (['P0', 'P1'].includes(t.priority) ? 'important' : 'chore')) === 'important').length;
-  const chores = unfinished.length - important;
+  const unfinished = tasksForDate(s.tasks || [], selectedTaskDate)
+    .filter(t => !['DONE', 'CANCELLED'].includes(t.state));
+  const important = unfinished.filter(t => taskCategory(t) === 'important').length;
+  const chores = unfinished.filter(t => taskCategory(t) === 'chore').length;
+  const habitSnapshot = getTodayHabitSnapshot();
+  const pendingHabits = Math.max(0, habitSnapshot.active.length - habitSnapshot.done.length);
   const trackedMinutes = Math.max(0, Number(s.trackedMinutes) || 0);
   const focusDuration = fmtFocusDuration(trackedMinutes);
   return {
     today: { label: blocked + overdue + stale, title: '需要留意', tone: 'urgent' },
-    tasks: { label: `${important}|${chores}`, title: '未完成主要任务 | 杂事', tone: 'count' },
+    tasks: {
+      label: `${important}|${chores}|${pendingHabits}`,
+      title: `${selectedTaskDate === dateStr() ? '今日' : '所选日期'}待完成主要任务 | 杂事 | 微习惯`,
+      tone: 'count',
+    },
     records: { label: focusDuration, title: '今日专注时长', tone: 'duration' },
     habits: 0,
     life: 0,

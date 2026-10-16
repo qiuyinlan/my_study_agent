@@ -239,7 +239,7 @@ export function renderNav(panels, current, onSelect, badges = {}) {
  * 放在对话区和输入框之间 —— 它是"当前待办"，不是历史消息，
  * 所以放在底部而不是塞进某个气泡里。刷新页面也会重新渲染出来。
  */
-export function renderPendingArea(items, { onConfirm, onDismiss } = {}) {
+export function renderPendingArea(items, { onConfirm, onDismiss, onConfirmAll } = {}) {
   const el = $('#pending-area');
   if (!el) return;
 
@@ -250,9 +250,12 @@ export function renderPendingArea(items, { onConfirm, onDismiss } = {}) {
   }
 
   el.classList.add('on');
+  const bulk = items.length > 1
+    ? `<div class="pending-toolbar"><span class="pending-count">待确认 ${items.length} 项</span><button type="button" class="primary" data-confirm-all>全部确认</button></div>`
+    : '';
   el.innerHTML = `<div class="msg assistant pending-message">
     <div class="who">帕尼尼</div>
-    <div class="bubble">${items.map(p => `
+    <div class="bubble">${bulk}${items.map(p => `
     <div class="pending-card ${p.danger ? 'danger' : ''}" data-pending="${p.id}">
       <div class="p-icon">${icon(p.danger ? 'alert' : 'play')}</div>
       <div class="p-main">
@@ -267,6 +270,18 @@ export function renderPendingArea(items, { onConfirm, onDismiss } = {}) {
 
   $$('[data-confirm]', el).forEach(b => { b.onclick = () => onConfirm?.(b.dataset.confirm); });
   $$('[data-dismiss]', el).forEach(b => { b.onclick = () => onDismiss?.(b.dataset.dismiss); });
+  const confirmAll = $('[data-confirm-all]', el);
+  if (confirmAll) confirmAll.onclick = async () => {
+    confirmAll.disabled = true;
+    confirmAll.textContent = '正在确认…';
+    try { await onConfirmAll?.(); }
+    finally {
+      if (confirmAll.isConnected) {
+        confirmAll.disabled = false;
+        confirmAll.textContent = '全部确认';
+      }
+    }
+  };
 }
 
 /** 把一个待确认项就地标成"已执行"，而不是整块重建（避免视觉跳动） */
@@ -340,6 +355,12 @@ export function createChatView(container) {
     container.scrollTop = container.scrollHeight;
   }
 
+  function appendChatMessage(node) {
+    const pendingArea = $('#pending-area');
+    container.appendChild(node);
+    if (pendingArea?.parentElement === container) container.appendChild(pendingArea);
+  }
+
   container.addEventListener('scroll', () => {
     setPinned(container.scrollHeight - container.scrollTop - container.clientHeight < 90);
   });
@@ -402,7 +423,7 @@ export function createChatView(container) {
       mobileStream = false;
       $('.placeholder', container)?.remove();
       setPinned(true);
-      container.appendChild(bubble('user', esc(text).replace(/\n/g, '<br>'), profile?.userName || '你'));
+      appendChatMessage(bubble('user', esc(text).replace(/\n/g, '<br>'), profile?.userName || '你'));
       scrollToBottom();
     },
 
@@ -413,12 +434,18 @@ export function createChatView(container) {
       reasoning = '';
       current = bubble('assistant', '<span class="cursor"></span>', profile?.supervisorName || '帕尼尼');
       tools = $('.tools', current);
-      container.appendChild(current);
+      appendChatMessage(current);
       scrollToBottom();
     },
 
     appendDelta(text) { if (!current) this.startAssistant(); raw += text; schedule(); },
     appendReasoning(text) { if (!current) this.startAssistant(); reasoning += text; schedule(); },
+
+    revealPending() {
+      mobileStream = false;
+      setPinned(true);
+      scrollToBottom();
+    },
 
     toolStart(name, args) {
       if (!current) this.startAssistant();
@@ -434,7 +461,8 @@ export function createChatView(container) {
       const el = document.createElement('div');
       el.className = `tool-call ${pending ? 'tool-pending' : ok ? 'tool-success' : 'tool-error'}`;
       const status = pending ? '待确认' : ok ? '执行完成' : '执行失败';
-      el.innerHTML = `${icon('tool')}<span>${status} · ${esc(TOOL_LABELS[name] || '处理中')}</span>`;
+      const detail = !ok && summary ? `<small class="tool-detail">${esc(summary)}</small>` : '';
+      el.innerHTML = `${icon('tool')}<span>${status} · ${esc(TOOL_LABELS[name] || '处理中')}${detail}</span>`;
       tools.appendChild(el);
       scrollToBottom();
     },

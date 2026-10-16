@@ -6,6 +6,7 @@
 // **之后每一条消息都会被静默丢弃** —— 表现为"突然就不回答了"。
 
 import { loadSettings, apiUrl } from './config.js';
+import { getWorkerSession, workerChat, workerConfigured } from './workerApi.js';
 
 export class ApiError extends Error {
   constructor(message, { status, raw, kind } = {}) {
@@ -36,7 +37,7 @@ function errFromText(status, raw) {
   let detail = '';
   try {
     const j = JSON.parse(raw);
-    detail = j?.error?.message || j?.message || '';
+    detail = typeof j?.error === 'string' ? j.error : j?.error?.message || j?.message || '';
   } catch { /* 非 JSON，忽略 */ }
   const base = STATUS_MESSAGES[status] || `请求失败（HTTP ${status}）`;
   return new ApiError(detail ? `${base}：${detail}` : base, { status, raw, kind: 'http' });
@@ -58,6 +59,7 @@ const CONNECT_TIMEOUT_MS = 30000;
 const IDLE_TIMEOUT_MS = 90000;
 
 function doFetch(body, signal) {
+  if (workerConfigured()) return workerChat(body, signal);
   const s = loadSettings();
   if (!s.apiKey) {
     throw new ApiError('还没填 API Key —— 点右上角「设置」填入。', { status: 401, kind: 'config' });
@@ -132,10 +134,30 @@ export async function streamChat({
         armIdle(CONNECT_TIMEOUT_MS);
         res = await doFetch(build(false), ctl.signal);
       } else {
-        throw errFromText(res.status, text);
+    throw errFromText(res.status, text);
       }
     }
-    if (!res.ok) throw await readError(res);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      const workerErrors = {
+        login_required: '请先登录测试账号',
+        membership_required: '当前账号没有有效体验权限，请在设置中兑换测试码',
+        daily_limit: '今日 AI 请求次数已用完',
+        request_limit: '体验 AI 总请求次数已用完',
+        ai_not_configured: '站点 AI 服务尚未配置',
+        upstream_unavailable: 'AI 服务暂时无法连接，请稍后重试',
+        model_not_allowed: '当前模型未开放；请在设置中使用 deepseek-chat 或 deepseek-reasoner',
+        invalid_request: '后端收到的请求格式不正确，请刷新页面后重试',
+        invalid_messages: '本轮对话内容无效或过长，请新建对话后重试',
+        invalid_tools: '工具定义超出后端限制，请刷新页面后重试',
+        request_too_large: '本轮上下文超过后端大小限制，请新建对话或减少历史内容',
+        invalid_max_tokens: '请求的最大回复长度不被接受',
+      };
+      let code = '';
+      try { code = JSON.parse(text)?.error || ''; } catch { /* non-JSON upstream error */ }
+      if (workerErrors[code]) throw new ApiError(workerErrors[code], { status: res.status, raw: text, kind: 'http' });
+      throw errFromText(res.status, text);
+    }
     if (!res.body) throw new ApiError('服务端没有返回数据流', { status: res.status, kind: 'http' });
   } catch (e) {
     disarm();
@@ -231,6 +253,33 @@ export async function streamChat({
     try { reader.releaseLock(); } catch { /* ignore */ }
   }
 
+  if (buf.trim().startsWith('data:')) {
+    const payload = buf.trim().slice(5).trim();
+    if (payload && payload !== '[DONE]') {
+      try {
+        const json = JSON.parse(payload);
+        if (json.usage) usage = json.usage;
+        const choice = json.choices?.[0];
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        const delta = choice?.delta;
+        if (typeof delta?.content === 'string' && delta.content) {
+          content += delta.content;
+          onDelta?.(delta.content);
+        }
+        if (typeof delta?.reasoning_content === 'string' && delta.reasoning_content) {
+          reasoning += delta.reasoning_content;
+          onReasoning?.(delta.reasoning_content);
+        }
+      } catch { /* Ignore an incomplete trailing event. */ }
+    }
+  }
+
+  if (!content.trim() && !reasoning.trim() && toolCalls.length === 0) {
+    throw new ApiError(`AI 服务返回了空响应${finishReason ? `（结束原因：${finishReason}）` : ''}。请稍后重试；若再次发生，请检查设置中的后端连接状态。`, {
+      kind: 'http', status: res.status,
+    });
+  }
+
   return {
     content,
     reasoning,
@@ -246,6 +295,20 @@ export async function streamChat({
 
 /** 设置面板里的"测试连接" */
 export async function testConnection({ baseUrl, apiKey } = {}) {
+  if (workerConfigured()) {
+    let result;
+    try {
+      result = await Promise.race([
+        getWorkerSession(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时')), 20000)),
+      ]);
+    } catch (error) {
+      throw new ApiError(`后端连接失败：${error.message || String(error)}`, { kind: 'network' });
+    }
+    if (!result.authenticated) throw new ApiError('请先登录测试账号', { status: 401, kind: 'config' });
+    if (!result.entitled) throw new ApiError('已连接后端，但当前账号还没有体验权限', { kind: 'config' });
+    return { ok: true, models: [loadSettings().model], proxy: true };
+  }
   const s = { ...loadSettings(), ...(baseUrl ? { baseUrl } : {}), ...(apiKey ? { apiKey } : {}) };
   if (!s.apiKey) throw new ApiError('请先填入 API Key', { status: 401, kind: 'config' });
 

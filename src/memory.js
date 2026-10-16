@@ -21,6 +21,7 @@ import { detectIntent } from './commands.js';
 import { assembleSystemPrompt, promptStats } from './persona.js';
 import { streamChat } from './deepseek.js';
 import { endOfToday, dateStr, daysUntil, nowISO } from './util.js';
+import { listPlans } from './docs.js';
 
 const CJK = /[\u4e00-\u9fff]/;
 
@@ -272,7 +273,7 @@ function fmtSignals(state) {
     rows.push(`- **停滞 ${x.idleDays} 天**：${x.title}　最后活动 ${x.lastTouchedAt?.slice(0, 10)}`);
   }
   for (const x of state.overloadedPlans.slice(0, 2)) {
-    rows.push(`- **规划过载**：${x.code} ${x.name}　预计 ${x.feasibility.totalMin} 分钟但可用只有 ${x.availableMin} 分钟，超 ${x.feasibility.overBy} 分钟`);
+    rows.push(`- **规划过载**：${x.code} ${x.name}　预计 ${x.feasibility.totalMin} 分钟但周期容量只有 ${x.feasibility.capacityMin ?? x.availableMin} 分钟，超 ${x.feasibility.overBy} 分钟`);
   }
   if (!rows.length) return '（没有受阻、逾期、停滞或过载的信号。）';
   return `${rows.join('\n')}\n\n→ 这些是本次对话应当处理的重点。**停滞和逾期要如实指出，但不要把它说成"你失败了"**（§3 第 7 条）。`;
@@ -364,7 +365,7 @@ export async function buildMessages({ sessionId, userText = '', codeNote = '' })
     .map(t => ({ ...t, idleDays: daysSince(lastTouch.get(t.id) || t.actualStart || t.createdAt) }))
     .filter(t => t.idleDays >= 3);
 
-  const plans = (await db.plans.toArray()).filter(p => p.status === 'active' || p.status === 'draft');
+  const plans = (await listPlans({})).filter(p => p.status === 'active' || p.status === 'draft');
   state.overloadedPlans = plans.filter(p => p.feasibility?.feasible === false);
   const activePlanId = await getMeta('activePlanId', '');
   const activePlan = plans.find(p => p.id === activePlanId) || plans.find(p => p.status === 'active') || plans[0] || null;

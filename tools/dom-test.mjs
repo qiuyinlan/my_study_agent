@@ -223,6 +223,7 @@ window.localStorage.setItem('msa.settings.v1', JSON.stringify({
 
 const $ = sel => window.document.querySelector(sel);
 const $$ = sel => [...window.document.querySelectorAll(sel)];
+const latestAssistantBubble = () => $$('#messages > .msg.assistant:not(.pending-message) .bubble').at(-1);
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const waitFor = async (fn, { timeout = 6000, label = '条件' } = {}) => {
   const t0 = Date.now();
@@ -294,9 +295,9 @@ await import('../src/main.js');
 check('深度模式入口已移除', $('#btn-depth') === null && $('#set-reason-model') === null);
 check('AI 对话有「聊聊我」入口', $('#btn-about-me')?.textContent === '聊聊我');
 check('学习档案编辑表单不询问 ADHD 状态', !$('#dlg-profile')?.textContent.includes('ADHD'));
-await waitFor(() => $('#view-tasks')?.classList.contains('active') && $('.app')?.classList.contains('chat-mode'), { label: 'restore workspace' });
-check('Saved panel restored on boot', $('#view-tasks').classList.contains('active'));
-check('Saved chat mode restored on boot', $('.app').classList.contains('chat-mode'));
+await waitFor(() => $('#view-tasks')?.classList.contains('active') && !$('.app')?.classList.contains('chat-mode'), { label: 'default task workspace' });
+check('默认进入任务页', $('#view-tasks').classList.contains('active'));
+check('默认使用任务内容模式', !$('.app').classList.contains('chat-mode'));
 await waitFor(() => $('.nav-btn[data-panel="today"]') && $('#view-tasks')?.innerHTML.length > 0, { label: 'boot complete' });
 await openPanel('today');
 await waitFor(() => $('#view-today')?.innerHTML.length > 0, { label: '今日面板渲染' });
@@ -355,8 +356,8 @@ const labels = navBtns.map(b => b.querySelector('.nav-label')?.textContent?.trim
 check('每项都有文字标签', labels.every(Boolean), labels.join(','));
 check('标签就是一级面板名',
   labels.join(',') === 'AI 对话,任务,复盘,学习,日志,生活导航', labels.join(','));
-check('侧边栏任务入口显示主要任务|杂事未完成数', /\d+\|\d+/.test($('.nav-btn[data-panel="tasks"] .nav-badge.count')?.textContent || '')
-  && $('.nav-btn[data-panel="tasks"] .nav-badge')?.title === '未完成主要任务 | 杂事');
+check('侧边栏任务入口显示主要任务|杂事|微习惯未完成数', /\d+\|\d+\|\d+/.test($('.nav-btn[data-panel="tasks"] .nav-badge.count')?.textContent || '')
+  && $('.nav-btn[data-panel="tasks"] .nav-badge')?.title === '今日待完成主要任务 | 杂事 | 微习惯');
 check('侧边栏日志入口显示今日专注时长', /(?:\d+h\d{2}min|\d+min)/.test($('.nav-btn[data-panel="records"] .nav-badge.duration')?.textContent || '')
   && !$('.nav-btn[data-panel="learning"] .nav-badge.duration'));
 const { panelBadges } = await import('../src/panels.js');
@@ -510,8 +511,8 @@ check('待确认工具返回后不会重复强制调用计时', fetchLog.at(-1)?
 const timerPendingCard = $('#pending-area .pending-card');
 check('模型回复前确认按钮已实际渲染', Boolean(timerPendingCard)
   && ($('#messages').textContent || '').includes('对话里的确认卡片已经显示。'));
-check('计时确认按钮属于帕尼尼消息并随对话滚动', timerPendingCard?.closest('.pending-message') !== null
-  && timerPendingCard?.closest('.messages') === $('#messages'));
+check('计时确认卡嵌在聊天消息流中并随消息滚动', timerPendingCard?.closest('#pending-area') !== null
+  && $('#pending-area')?.parentElement === $('#messages'));
 check('用户确认前不会启动计时', !$('#timerbar')?.classList.contains('on'));
 check('计时确认按钮明确写“开始计时”', timerPendingCard?.querySelector('[data-confirm]')?.textContent === '开始计时');
 click('#pending-area [data-dismiss]');
@@ -609,8 +610,9 @@ check('助手消息带 assistant 类（无气泡底色）', $('.msg.assistant') 
 console.log('\n[4] 工具调用（agent 循环）');
 
 const beforeCalls = fetchLog.length;
+const actionDb = await import('../src/db.js');
 script = [toolStream('plan_requested_actions', JSON.stringify({
-  actions: [{ kind: 'save_task', title: '写论文引言', priority: 'P0', area: 'work' }],
+  actions: [{ kind: 'save_task', title: '写论文引言', priority: 'P0', area: 'work', dueAt: new Date().toISOString().slice(0, 10) }],
   questions: [],
 }))];
 sendText('帮我把写论文加进任务');
@@ -618,7 +620,7 @@ await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(100);
 
 const traces = $$('#messages .tool-call').map(e => e.textContent);
-check('界面显示中文工具执行回执', traces.some(t => t.includes('执行完成 · 保存任务')), traces.join(' | ').slice(0, 120));
+check('界面显示中文工具执行回执', traces.some(t => t.includes('待确认 · 保存任务')), traces.join(' | ').slice(0, 120));
 check('工具执行过程带工具图标', $$('#messages .tool-call svg').length > 0);
 check('工具回执不显示英文名或参数', !/save_task|title=|priority=|area=/.test(traces.join(' ')));
 check('工具调用后产出了文本回复',
@@ -629,6 +631,13 @@ check('规划请求只暴露 action planner schema', fetchLog.slice(beforeCalls)
   JSON.stringify(fetchLog.slice(beforeCalls).map(f => f.tools)));
 check('规划调用指定 plan_requested_actions',
   fetchLog[beforeCalls]?.toolChoice?.function?.name === 'plan_requested_actions');
+check('任务草稿在聊天中显示分类和日期', ($('#pending-area').textContent || '').includes('分类：任务')
+  && ($('#pending-area').textContent || '').includes('日期：'));
+click('#pending-area [data-confirm]');
+await waitFor(() => !$('#pending-area [data-confirm]'),
+  { label: '保存聊天中的任务草稿', timeout: 8000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+check('确认后任务草稿已写入', (await actionDb.listTasks()).some(task => task.title === '写论文引言'));
 
 script = [toolStream('plan_requested_write_actions', JSON.stringify({
   actions: [{ tool: 'log_time_entry', arguments: { minutes: 13, note: 'DOM 测试耗时记录' } }],
@@ -649,7 +658,6 @@ if ($('#pending-area [data-confirm]')) {
 }
 check('耗时草稿确认后才显示已记录', ($('#messages').textContent || '').includes('已记录一笔自报耗时：13 分钟'));
 
-const actionDb = await import('../src/db.js');
 const actionSession = await actionDb.ensureSession();
 const timeCountBeforePlan = await actionDb.db.timeEntries.count();
 const plannerCallStart = fetchLog.length;
@@ -667,17 +675,30 @@ await wait(100);
 check('明确的多项记录请求强制调用规划函数', fetchLog.slice(plannerCallStart).length === 1
   && fetchLog[plannerCallStart]?.toolChoice?.function?.name === 'plan_requested_actions');
 check('操作规划只提供受支持的安全写入类型', fetchLog[plannerCallStart]?.tools === 1);
-check('多项请求逐项保留两个耗时草稿和一个待办', (await actionDb.listTasks()).some(t => t.title === '中午联系同学拿外网流量')
+check('多项请求逐项保留两个耗时草稿和一个待办', !(await actionDb.listTasks()).some(t => t.title === '中午联系同学拿外网流量')
   && (await actionDb.getMeta('actionLedger', [])).filter(x => x.turnId && x.kind === 'log_time_entry').length >= 2);
 check('耗时待确认期间没有提前落库', await actionDb.db.timeEntries.count() === timeCountBeforePlan);
-check('待办保存已按实体 ID 读回核验', (await actionDb.getMeta('actionLedger', [])).some(x => x.kind === 'save_task' && x.status === 'verified'));
+check('待办在聊天确认前没有写入', (await actionDb.getMeta('actionLedger', [])).some(x => x.kind === 'save_task' && x.status === 'awaiting_confirmation'));
 check('界面逐项标明草稿待确认', ($('#messages').textContent || '').includes('草稿已生成，等待你确认'));
 const actionDraftButtons = $$('#pending-area [data-confirm]');
-check('两个耗时草稿各自有确认按钮', actionDraftButtons.length >= 2, String(actionDraftButtons.length));
+check('任务和两个耗时草稿各自有确认按钮', actionDraftButtons.length >= 3, String(actionDraftButtons.length));
+const choreConfirmButton = actionDraftButtons.find(button => button.closest('.pending-card')?.textContent.includes('中午联系同学拿外网流量'));
+check('杂事草稿显示任务名称和日期状态', Boolean(choreConfirmButton)
+  && choreConfirmButton.closest('.pending-card').textContent.includes('分类：杂事'));
+choreConfirmButton?.click();
+await waitFor(() => !$$('#pending-area [data-confirm]').some(button => button.closest('.pending-card')?.textContent.includes('中午联系同学拿外网流量')),
+  { label: '确认保存杂事任务', timeout: 8000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(80);
+check('确认后杂事已写入', (await actionDb.listTasks()).some(task => task.title === '中午联系同学拿外网流量'));
+check('待办确认后按实体 ID 读回核验', (await actionDb.getMeta('actionLedger', [])).some(x => x.kind === 'save_task' && x.status === 'verified'));
 for (let i = 0; i < 2; i++) {
-  click('#pending-area [data-confirm]');
-  await wait(80);
+  const button = $('#pending-area [data-confirm]');
+  const cardsBeforeConfirm = $$('#pending-area .pending-card').length;
+  button?.click();
+  await waitFor(() => !button?.isConnected || $$('#pending-area .pending-card').length < cardsBeforeConfirm,
+    { label: `确认第 ${i + 1} 笔耗时草稿`, timeout: 8000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
 }
+await wait(100);
 check('逐项确认后两笔耗时均已落库', await actionDb.db.timeEntries.count() === timeCountBeforePlan + 2);
 const plannedTurnId = (await actionDb.sessionMessages(actionSession.id)).at(-2)?.id;
 check('逐项确认后操作账本更新为核验成功', (await actionDb.getMeta('actionLedger', []))
@@ -691,7 +712,26 @@ await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(80);
 check('模型未返回操作清单时没有执行写入', await actionDb.db.timeEntries.count() === timeCountBeforeMissingPlan);
 check('模型未返回操作清单时系统明确说未执行', ($('#messages').textContent || '').includes('没有拿到可验证的操作清单')
-  && !($('#messages .msg.assistant:last-child .bubble')?.textContent || '').includes('已经帮你登记好了'));
+  && !(latestAssistantBubble()?.textContent || '').includes('已经帮你登记好了'));
+
+const noopPlanCallStart = fetchLog.length;
+script = [
+  toolStream('plan_requested_write_actions', JSON.stringify({ actions: [], questions: [] })),
+  textStream('听起来你是在梳理实习准备和时间压力，我们可以先一起排一下优先级。'),
+];
+sendText('开始准备任务，之后投递实习，我有些焦虑');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await waitFor(() => (latestAssistantBubble()?.textContent || '').includes('一起排一下优先级'),
+  { label: '空操作清单后继续正常聊天', timeout: 8000 }).catch(e => console.log(`    ⚠️ ${e.message}`));
+const noopTurnMessages = await actionDb.sessionMessages(actionSession.id);
+const noopTurnId = noopTurnMessages.at(-2)?.id;
+check('空操作规划自动回到正常聊天', fetchLog.length >= noopPlanCallStart + 2
+  && (latestAssistantBubble()?.textContent || '').includes('一起排一下优先级'),
+`调用数=${fetchLog.length - noopPlanCallStart}；回复=${(latestAssistantBubble()?.textContent || '').slice(-120)}；消息=${$$('#messages > *').map(node => `${node.className}:${node.textContent.slice(-45)}`).join(' || ')}`);
+check('空操作规划不显示错误或要求补充操作', !($('#messages').textContent || '').includes('操作清单为空')
+  && !($('#messages').textContent || '').includes('请说明具体要做的操作'));
+check('空操作规划没有执行任何写入', !(await actionDb.getMeta('actionLedger', []))
+  .some(item => item.turnId === noopTurnId && item.status === 'verified'));
 
 const partialPlanTimeCount = await actionDb.db.timeEntries.count();
 script = [toolStream('plan_requested_actions', JSON.stringify({
@@ -817,7 +857,27 @@ check('添加日期默认本地当天', taskDate === localToday);
 check('分类包含任务、杂事和微习惯', ['important', 'chore', 'microhabit'].every(value =>
   [...$('#task-category').options].some(option => option.value === value)));
 check('预计耗时是选填项', !$('#task-estimate').required);
-$('#dlg-task').close('cancel');
+check('空名称的新建任务也提供明确取消按钮', Boolean($('#btn-cancel-task')));
+click('#btn-cancel-task');
+check('点取消可关闭新建任务弹窗，不触发必填校验', !$('#dlg-task').open);
+
+const { savePlan: saveEditorPlan } = await import('../src/docs.js');
+const { openPlan: openPlanEditor } = await import('../src/dialogs.js');
+const editorDeadlineDate = new Date(Date.now() + 32 * 86400000);
+const editorDeadline = `${editorDeadlineDate.getFullYear()}-${String(editorDeadlineDate.getMonth() + 1).padStart(2, '0')}-${String(editorDeadlineDate.getDate()).padStart(2, '0')}`;
+const editorPlan = await saveEditorPlan({
+  name: '编辑器周期容量测试',
+  deadline: editorDeadline,
+  availableMin: 240,
+  stages: [{ name: '项目复习', status: 'active', estimate: '10-14 → 10-20，7天',
+    tasks: [{ text: '复习项目内容', estMin: 990 }] }],
+});
+const editorPlanDialog = openPlanEditor(editorPlan.plan.id);
+await waitFor(() => $('#dlg-plan')?.open, { label: '打开主线编辑弹窗' });
+check('编辑页底部按截止周期计算可用容量', $('#plan-meta')?.textContent.includes('计划可行')
+  && $('#plan-meta')?.textContent.includes('周期容量'));
+$('#dlg-plan').close('cancel');
+await editorPlanDialog;
 
 /* ══════════ 5. 代码动作路径 ══════════ */
 
@@ -879,15 +939,19 @@ for (const panel of ['today', 'learning', 'life', 'records', 'tasks', 'points', 
 }
 check('全部面板都能切换、渲染、导航高亮同步', panelOk === 9, `${panelOk}/9`);
 await openPanel('tasks');
-check('任务页显示待完成主要任务数量', $('#view-tasks [data-pending-important]') !== null);
-check('任务页显示待完成杂事数量', $('#view-tasks [data-pending-chore]') !== null);
+check('任务页按主要任务和杂事分组', $('#view-tasks .task-list-important') !== null
+  && $('#view-tasks .task-list-chore') !== null);
+check('任务页不显示顶部统计和关键任务区块', !$('#view-tasks .task-summary')
+  && !$('#view-tasks #task-sync-status')
+  && !$('#view-tasks').textContent.includes('今日关键任务')
+  && !$('#view-tasks').textContent.includes('今天还没有设关键任务'));
 check('切换面板期间没有报错', errors.length === 0, errors[0]);
 check('任务页底部包含每日微习惯任务', $('#view-tasks [data-task-microhabits]') !== null);
 check('微习惯区只显示简洁标题，不显示说明文案',
   $('#view-tasks [data-task-microhabits] .habit-hero h3')?.textContent === '微习惯'
     && !$('#view-tasks [data-task-microhabits] .habit-hero')?.textContent.includes('MICRO HABITS')
     && !$('#view-tasks [data-task-microhabits] .habit-hero')?.textContent.includes('小步完成'));
-const { renderTasks: renderTaskView } = await import('../src/panels.js');
+const { renderTasks: renderTaskView, panelBadges: getPanelBadges } = await import('../src/panels.js');
 const { dateStr: localDate } = await import('../src/util.js');
 const todayForTasks = localDate();
 const yesterdayForTasks = new Date(`${todayForTasks}T12:00:00`);
@@ -906,15 +970,42 @@ renderTaskView(taskViewHarness, {});
 check('未完成排期任务会顺延显示在今天', $('#view-tasks')?.textContent.includes('顺延测试任务'));
 check('已完成任务只显示在实际完成当天', $('#view-tasks')?.textContent.includes('今日完成测试')
   && !$('#view-tasks')?.textContent.includes('昨日完成测试'));
+check('任务分组不显示待完成统计', !$('#view-tasks [data-pending-important]') && !$('#view-tasks [data-pending-chore]'));
+const completedDayHarness = {
+  ...taskViewHarness,
+  tasks: [
+    { id: 'done-main-1', title: '已完成主要任务一', state: 'DONE', category: 'important', actualEnd: new Date().toISOString() },
+    { id: 'done-main-2', title: '已完成主要任务二', state: 'DONE', category: 'important', actualEnd: new Date().toISOString() },
+    { id: 'done-chore', title: '已完成杂事', state: 'DONE', category: 'chore', actualEnd: new Date().toISOString() },
+    { id: 'future-pending', title: '未来任务', state: 'NEXT', category: 'important', dueAt: '2099-01-01' },
+    { id: 'scheduled-recent', title: '近期安排任务', state: 'NEXT', category: 'chore', dueAt: todayForTasks },
+    { id: 'scheduled-older', title: '较早安排任务', state: 'NEXT', category: 'important', dueAt: yesterdayTaskDate },
+    { id: 'unplanned-pending', title: '未安排任务', state: 'NEXT', category: 'important' },
+  ],
+};
+renderTaskView(completedDayHarness, {});
+check('任务页不显示逾期统计文字', !$('#view-tasks').textContent.includes('所选日期待完成'));
+check('任务导航角标与当天任务页使用相同的待完成口径', getPanelBadges(completedDayHarness).tasks.label === '1|1|0',
+  getPanelBadges(completedDayHarness).tasks.label);
+check('未来任务不混入当天列表；未安排任务显示在主要任务末尾', !$('#view-tasks')?.textContent.includes('未来任务')
+  && $('#view-tasks')?.textContent.includes('未安排任务'));
+const importantTaskIds = [...$('#view-tasks .task-list-important')?.querySelectorAll('[data-task]') || []]
+  .map(node => node.dataset.task);
+const choreTaskIds = [...$('#view-tasks .task-list-chore')?.querySelectorAll('[data-task]') || []]
+  .map(node => node.dataset.task);
+check('任务按主要任务和杂事分组，组内按安排日期降序且未安排任务排在末尾',
+  importantTaskIds.indexOf('scheduled-older') < importantTaskIds.indexOf('unplanned-pending')
+    && choreTaskIds.indexOf('scheduled-recent') >= 0
+    && !$('#view-tasks')?.textContent.includes('未安排日期'));
 await openPanel('tasks');
 await openPanel('life');
 const lifeEntries = $$('.life-entry-card');
-check('生活导航显示四个入口和 SVG 图标', lifeEntries.length === 4 && lifeEntries.every(card => card.querySelector('.life-entry-icon svg')));
-check('生活导航入口使用不同图标', new Set(lifeEntries.map(card => card.querySelector('.life-entry-icon').innerHTML)).size === 4);
+check('生活导航显示三个入口和 SVG 图标', lifeEntries.length === 3 && lifeEntries.every(card => card.querySelector('.life-entry-icon svg')));
+check('生活导航入口使用不同图标', new Set(lifeEntries.map(card => card.querySelector('.life-entry-icon').innerHTML)).size === 3);
 click('[data-life-entry="principles"]');
 check('生活导航入口可以进入详情', $('#view-life [data-life-kind="principles"]') !== null);
 click('[data-life-back]');
-check('生活导航详情可以返回入口', $$('.life-entry-card').length === 4);
+check('生活导航详情可以返回入口', $$('.life-entry-card').length === 3);
 
 /* ══════════ 7. 纯导航不消耗模型调用 ══════════ */
 
@@ -1066,18 +1157,24 @@ check('任务面板初始不含待测任务', !tasksBefore.includes('原地更�
   tasksBefore.slice(0, 60).replace(/\s+/g, ' '));
 
 script = [toolStream('plan_requested_write_actions', JSON.stringify({
-  actions: [{ tool: 'save_task', arguments: { title: '原地更新测试任务', priority: 'P1', area: 'work' } }],
+  actions: [{ tool: 'save_task', arguments: {
+    title: '原地更新测试任务', priority: 'P1', area: 'work', dueAt: new Date().toISOString().slice(0, 10),
+  } }],
   questions: [],
 }))];
 sendText('帮我加个任务：原地更新测试任务');
 await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+check('新建任务先生成聊天确认草稿', Boolean($('#pending-area [data-confirm]')));
+click('#pending-area [data-confirm]');
+await waitFor(() => !$('#pending-area [data-confirm]'), { label: '确认保存任务草稿', timeout: 8000 })
+  .catch(e => console.log(`    ⚠️ ${e.message}`));
 await wait(500);   // 给 refreshAll 留出时间（它在 setBusy(false) 之后才 await）
 
 const tasksAfter = $('#view-tasks')?.textContent || '';
 check('**停在任务面板时，新任务自动出现在面板上**', tasksAfter.includes('原地更新测试任务'),
   tasksAfter.slice(0, 80).replace(/\s+/g, ' '));
-check('面板副标题（任务数）也更新了',
-  ($('#panel-sub')?.textContent || '').length > 0, $('#panel-sub')?.textContent);
+check('任务页不显示顶部任务数量副标题',
+  ($('#panel-sub')?.textContent || '') === '', $('#panel-sub')?.textContent);
 
 // 场景 B：顶栏统计
 check('顶栏统计已更新', ($('#stats')?.textContent || '').length > 0,
@@ -1121,6 +1218,8 @@ await wait(600);
 check('**设定今日关键任务也要用户确认**（模型不替你决定今天做什么）',
   $$('#pending-area .pending-card').length === 1,
   `${$$('#pending-area .pending-card').length} 张`);
+check('待确认卡片出现时自动切到可见的聊天区', $('.app')?.classList.contains('chat-mode'));
+check('待确认卡片的确认按钮已经渲染', Boolean($('#pending-area [data-confirm]')));
 check('确认卡片写明了要设什么',
   ($('#pending-area .pending-card')?.textContent || '').includes('关键任务'),
   $('#pending-area .pending-card')?.textContent);
@@ -1140,6 +1239,20 @@ check('**确认后关键任务出现在今日面板**', todayAfter.includes('原
 await pendingMod.clearPending();
 click('#btn-refresh-panel');
 await wait(400);
+
+script = [toolStream('plan_requested_write_actions', JSON.stringify({
+  actions: [{ tool: 'save_plan', arguments: {
+    name: '保存后自动打开测试主线',
+    stages: [{ name: '第一阶段', status: 'active', tasks: [] }],
+  } }],
+  questions: [],
+}))];
+sendText('帮我保存这个规划');
+await waitIdle().catch(e => console.log(`    ⚠️ ${e.message}`));
+await wait(500);
+check('保存规划后自动打开规划面板并显示新主线',
+  ($('#view-plans')?.textContent || '').includes('保存后自动打开测试主线')
+    && !$('.app')?.classList.contains('chat-mode'));
 
 // 场景 E：手动刷新 + 更新时间指示
 check('面板标题旁有更新时间指示', $('#panel-updated') !== null);
@@ -1178,7 +1291,7 @@ await wait(600);
 
 let todayText = $('#view-today')?.textContent || '';
 check('学习记录先在聊天里请求确认',
-  $$('#messages .msg.assistant').at(-1)?.textContent.includes('确认保存'));
+  (latestAssistantBubble()?.textContent || '').includes('确认保存'), latestAssistantBubble()?.textContent);
 check('确认前今日动态没有新学习记录', !todayText.includes('动态测试知识点'),
   todayText.replace(/\s+/g, ' ').slice(0, 140));
 
@@ -1199,7 +1312,7 @@ check('今日动态渲染成时间线', $$('#view-today .tl-item').length > 0,
 console.log('\n[14] 计时不该由模型替你按开始键');
 
 const pendingArea = $('#pending-area');
-check('待确认区属于对话滚动区域', pendingArea !== null && pendingArea.parentElement === $('#messages'));
+check('待确认区属于聊天消息滚动区域', pendingArea !== null && pendingArea.parentElement === $('#messages'));
 
 script = [
   toolStream('timer_start', JSON.stringify({ task: '原地更新测试任务', plannedMin: 20 })),
@@ -1212,8 +1325,8 @@ await wait(600);
 check('**出现确认卡片**', $$('#pending-area .pending-card').length === 1,
   `${$$('#pending-area .pending-card').length} 张`);
 check('待确认区已激活', pendingArea?.classList.contains('on'));
-check('待确认卡片嵌在可滚动对话消息流中', pendingArea?.parentElement === $('#messages')
-  && $('#messages')?.contains(pendingArea));
+check('待确认卡片在消息列表末尾，可随页面滚动查看', pendingArea?.parentElement === $('#messages')
+  && $('#messages')?.lastElementChild === pendingArea);
 check('确认动作回执显示待确认而非完成',
   $$('#messages .tool-call').some(el => el.textContent.includes('待确认 · 开始计时'))
     && !$$('#messages .tool-call').some(el => el.textContent.includes('timer_start(')));
@@ -1458,7 +1571,7 @@ check('明确自我介绍会强制调用档案更新工具',
 const profDrafted = await dbMod.getProfile();
 check('聊天确认前档案保持不变', !profDrafted.userName && !profDrafted.about);
 check('档案草稿在聊天里请求确认',
-  $$('#messages .msg.assistant').at(-1)?.textContent.includes('确认保存'));
+  (latestAssistantBubble()?.textContent || '').includes('确认保存'), latestAssistantBubble()?.textContent);
 
 script = [textStream('档案已保存。')];
 sendText('确认保存');
