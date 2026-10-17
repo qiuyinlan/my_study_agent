@@ -1090,8 +1090,8 @@ body {
 .task-date small { color:var(--fg-faint); font-size:10px; }
 .task-date strong { font-size:16px; line-height:1.2; }
 .task-date i { color:var(--fg-faint); font-size:9px; font-style:normal; white-space:nowrap; }
-.task-date.has-tasks { border-color:var(--accent-line); background:var(--bg-active); }
-.task-date.has-tasks strong, .task-date.has-tasks i { color:var(--accent); }
+.task-date.today { border-color:var(--accent-line); background:var(--bg-active); }
+.task-date.today strong, .task-date.today i { color:var(--accent); }
 .task-date.selected { border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
 .task-date.selected small, .task-date.selected i { color:var(--accent); }
 .task-section-title { margin:18px 0 8px; padding-bottom:7px; border-bottom:1px solid var(--line-soft); color:var(--fg); font-size:14px; font-weight:650; }

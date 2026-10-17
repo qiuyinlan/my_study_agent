@@ -15,7 +15,7 @@ import { listCheckins, listReviews, patternStats, PROCRASTINATION_PATTERNS, isMe
 import { listPlans, listSops, PLAN_STATUSES, PLAN_STAGE_STATUSES, planStages, getActivePlan, setActivePlan, schedulePlanTasks } from './docs.js';
 import { estimationStats, listTimeEntries } from './timer.js';
 import * as daylog from './daylog.js';
-import { renderMicroHabit, getTodayHabitSnapshot } from './microhabit.js';
+import { renderMicroHabit, getHabitSnapshot } from './microhabit.js';
 import { renderDailyReview } from './dailyReview.js';
 import { renderLifeNav } from './life.js';
 import {
@@ -405,7 +405,7 @@ export function renderTasks(s, h) {
   out.push(`<nav class="task-date-strip" aria-label="任务日期">${week.map(date => {
     const d = new Date(`${date}T00:00:00`);
     const today = date === dateStr();
-    return `<button type="button" class="task-date ${date === selectedTaskDate ? 'selected' : ''}" data-task-date="${date}" aria-pressed="${date === selectedTaskDate}"><small>${today ? '今天' : `周${shortDays[d.getDay()]}`}</small><strong>${Number(date.slice(-2))}</strong><i>${dateCount(date)} 项</i></button>`;
+    return `<button type="button" class="task-date ${today ? 'today' : ''} ${date === selectedTaskDate ? 'selected' : ''}" data-task-date="${date}" aria-pressed="${date === selectedTaskDate}"><small>${today ? '今天' : `周${shortDays[d.getDay()]}`}</small><strong>${Number(date.slice(-2))}</strong><i>${dateCount(date)} 项</i></button>`;
   }).join('')}</nav>`);
   const unplanned = s.tasks.filter(task => !['DONE', 'CANCELLED'].includes(task.state) && !task.dueAt && !task.plannedStart);
   const visibleTasks = [...new Map([...dayTasks, ...unplanned].map(task => [task.id, task])).values()]
@@ -459,10 +459,11 @@ export function renderTasks(s, h) {
     strip.replaceWith(nav);
     nav.append(previous, strip, next);
   }
-  el.querySelectorAll('[data-task-date]').forEach(button => {
-    if (dateCount(button.dataset.taskDate) > 0) button.classList.add('has-tasks');
+  renderMicroHabit(el.querySelector('[data-task-microhabits]'), {
+    onChanged: h?.onMicroHabitChanged,
+    showAddButton: false,
+    date: selectedTaskDate,
   });
-  renderMicroHabit(el.querySelector('[data-task-microhabits]'), { onChanged: h?.onMicroHabitChanged, showAddButton: false });
   el.querySelector('[data-new-task]')?.addEventListener('click', () => h.onNewTask?.());
   el.querySelectorAll('[data-task-date]').forEach(button => button.addEventListener('click', () => {
     selectedTaskDate = button.dataset.taskDate;
@@ -986,7 +987,7 @@ export function panelBadges(s) {
     .filter(t => !['DONE', 'CANCELLED'].includes(t.state));
   const important = unfinished.filter(t => taskCategory(t) === 'important').length;
   const chores = unfinished.filter(t => taskCategory(t) === 'chore').length;
-  const habitSnapshot = getTodayHabitSnapshot();
+  const habitSnapshot = getHabitSnapshot(selectedTaskDate);
   const pendingHabits = Math.max(0, habitSnapshot.active.length - habitSnapshot.done.length);
   const trackedMinutes = Math.max(0, Number(s.trackedMinutes) || 0);
   const focusDuration = fmtFocusDuration(trackedMinutes);

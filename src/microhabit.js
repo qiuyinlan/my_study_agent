@@ -108,12 +108,15 @@ export function pruneMicroHabitHistory({ now = Date.now(), retentionDays = 60 } 
   return removed;
 }
 
-export function getTodayHabitSnapshot() {
+export function getHabitSnapshot(date = today()) {
   const state = loadMicroHabitState();
   const active = state.habits.filter(h => h.active !== false).sort((a, b) => a.order - b.order);
-  const doneIds = new Set(Array.isArray(state.completions[today()]) ? state.completions[today()] : []);
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date)) ? String(date) : today();
+  const doneIds = new Set(Array.isArray(state.completions[day]) ? state.completions[day] : []);
   return { active, doneIds, done: active.filter(h => doneIds.has(h.id)) };
 }
+
+export const getTodayHabitSnapshot = () => getHabitSnapshot(today());
 
 export function loadDailyEntry(date = today()) {
   const raw = readJson(`donelist-${date}`, null) || (date === today() ? readJson(DONELIST_KEY, null) : null);
@@ -225,18 +228,19 @@ export function bindTodayJournal(root, { onChanged, onCheckinSave, onMedsToggle 
   });
 }
 
-export function renderMicroHabit(el, { onChanged, showAddButton = true } = {}) {
+export function renderMicroHabit(el, { onChanged, showAddButton = true, date = today() } = {}) {
   const state = loadMicroHabitState();
   const active = state.habits.filter(h => h.active !== false).sort((a, b) => a.order - b.order);
-  const doneIds = new Set(Array.isArray(state.completions[today()]) ? state.completions[today()] : []);
+  const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(String(date)) ? String(date) : today();
+  const doneIds = new Set(Array.isArray(state.completions[selectedDate]) ? state.completions[selectedDate] : []);
   const done = active.filter(h => doneIds.has(h.id)).length;
   const percent = active.length ? Math.round(done / active.length * 100) : 0;
   el.innerHTML = `<div class="habit-workspace">
-    <section class="habit-hero workspace-card"><div><h3>微习惯</h3></div><div class="habit-progress-ring" style="--progress:${percent * 3.6}deg"><span>${percent}%</span><small>今日完成</small></div></section>
-    <section class="workspace-card"><div class="workspace-card-head"><div><h3>今日习惯</h3><p class="card-sub">${done}/${active.length || 0} 个已完成</p></div></div>
+    <section class="habit-hero workspace-card"><div><h3>微习惯</h3></div><div class="habit-progress-ring" style="--progress:${percent * 3.6}deg"><span>${percent}%</span><small>${selectedDate === today() ? '今日完成' : `${selectedDate} 完成`}</small></div></section>
+    <section class="workspace-card"><div class="workspace-card-head"><div><h3>${selectedDate === today() ? '今日习惯' : `${selectedDate} 习惯`}</h3><p class="card-sub">${done}/${active.length || 0} 个已完成</p></div></div>
       ${active.length ? `<div class="habit-list">${active.map(h => `<article class="habit-item" data-habit-row="${esc(h.id)}">
         <div class="habit-row ${doneIds.has(h.id) ? 'done' : ''}">
-          <button type="button" class="habit-complete" data-habit-id="${esc(h.id)}" aria-label="${doneIds.has(h.id) ? '取消完成' : '标记完成'}：${esc(h.title)}" aria-pressed="${doneIds.has(h.id)}"><span class="habit-check">${doneIds.has(h.id) ? icon('check') : ''}</span><span class="habit-copy"><strong>${esc(h.title)}</strong><small>${doneIds.has(h.id) ? '今天已完成' : '点击标记完成'}</small></span></button>
+          <button type="button" class="habit-complete" data-habit-id="${esc(h.id)}" aria-label="${doneIds.has(h.id) ? '取消完成' : '标记完成'}：${esc(h.title)}" aria-pressed="${doneIds.has(h.id)}"><span class="habit-check">${doneIds.has(h.id) ? icon('check') : ''}</span><span class="habit-copy"><strong>${esc(h.title)}</strong><small>${doneIds.has(h.id) ? (selectedDate === today() ? '今天已完成' : '该日已完成') : '点击标记完成'}</small></span></button>
           <div class="habit-row-actions"><button type="button" class="habit-icon-btn" data-habit-edit title="编辑微习惯" aria-label="编辑微习惯：${esc(h.title)}">${icon('pencil')}</button><button type="button" class="habit-icon-btn danger" data-habit-delete title="删除微习惯" aria-label="删除微习惯：${esc(h.title)}">${icon('trash')}</button></div>
         </div>
         <form class="habit-edit-form" data-habit-edit-form hidden><input name="title" value="${esc(h.title)}" maxlength="100" required aria-label="修改习惯名称"><button type="submit" class="habit-edit-save" aria-label="保存修改" title="保存修改">${icon('check')}</button><button type="button" class="habit-edit-cancel" data-habit-edit-cancel>取消</button></form>
@@ -247,10 +251,10 @@ export function renderMicroHabit(el, { onChanged, showAddButton = true } = {}) {
   el.querySelectorAll('[data-habit-id]').forEach(node => node.addEventListener('click', () => {
     const id = node.dataset.habitId;
     const next = loadMicroHabitState();
-    const list = Array.isArray(next.completions[today()]) ? next.completions[today()] : [];
-    next.completions[today()] = list.includes(id) ? list.filter(x => x !== id) : [...list, id];
+    const list = Array.isArray(next.completions[selectedDate]) ? next.completions[selectedDate] : [];
+    next.completions[selectedDate] = list.includes(id) ? list.filter(x => x !== id) : [...list, id];
     saveMicroHabitState(next);
-    renderMicroHabit(el, { onChanged });
+    renderMicroHabit(el, { onChanged, showAddButton, date: selectedDate });
     onChanged?.();
   }));
   el.querySelectorAll('[data-habit-edit]').forEach(button => button.addEventListener('click', () => {
@@ -270,7 +274,7 @@ export function renderMicroHabit(el, { onChanged, showAddButton = true } = {}) {
     const title = form.elements.namedItem('title')?.value?.trim();
     if (!title || !row) return;
     changeMicroHabit({ action: 'update', id: row.dataset.habitRow, title });
-    renderMicroHabit(el, { onChanged });
+    renderMicroHabit(el, { onChanged, showAddButton, date: selectedDate });
     onChanged?.();
   }));
   el.querySelectorAll('[data-habit-edit-cancel]').forEach(button => button.addEventListener('click', () => {
@@ -281,7 +285,7 @@ export function renderMicroHabit(el, { onChanged, showAddButton = true } = {}) {
     const row = button.closest('[data-habit-row]');
     if (!row) return;
     changeMicroHabit({ action: 'delete', id: row.dataset.habitRow });
-    renderMicroHabit(el, { onChanged });
+    renderMicroHabit(el, { onChanged, showAddButton, date: selectedDate });
     onChanged?.();
   }));
   el.querySelector('[data-add-habit]')?.addEventListener('submit', event => {
@@ -291,7 +295,7 @@ export function renderMicroHabit(el, { onChanged, showAddButton = true } = {}) {
     const next = loadMicroHabitState();
     next.habits.push({ id: uid(), title, active: true, order: next.habits.length });
     saveMicroHabitState(next);
-    renderMicroHabit(el, { onChanged });
+    renderMicroHabit(el, { onChanged, showAddButton, date: selectedDate });
     onChanged?.();
   });
   el.querySelector('[data-habit-fab]')?.addEventListener('click', () => {
