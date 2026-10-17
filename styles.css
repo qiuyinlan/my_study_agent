@@ -1244,6 +1244,13 @@ body {
 .review-calendar-head button { display:grid; place-items:center; width:32px; height:32px; border:1px solid #e0ebe1; border-radius:6px; background:#fff; color:#477252; }
 .review-calendar-head svg { width:16px; height:16px; }
 .review-calendar-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; text-align:center; }
+.review-week-strip { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:5px; }
+.review-calendar-day.review-week-day { display:flex; flex-direction:column; justify-content:center; gap:5px; min-height:62px; padding:5px 2px 8px; border:1px solid #e5eee5; background:#fff; }
+.review-week-day span { color:#829184; font-size:10px; white-space:nowrap; }
+.review-week-day strong { font-size:15px; font-weight:650; }
+.review-week-day.is-selected span { color:#e3f0e4; }
+.review-week-day.is-selected { border-color:#2f7d54; }
+.review-week-day i { bottom:4px; }
 .review-calendar-weekdays { margin-bottom:5px; color:#879489; font-size:11px; }
 .review-calendar-day, .review-calendar-empty { display:grid; place-items:center; aspect-ratio:1; min-width:0; position:relative; border:0; border-radius:6px; background:transparent; color:#46594a; font-size:12px; }
 .review-calendar-day:hover { background:#f0f7f0; }
@@ -1251,6 +1258,40 @@ body {
 .review-calendar-day i { position:absolute; bottom:4px; width:4px; height:4px; border-radius:50%; background:#69a678; }
 .review-calendar-day.is-selected i { background:#fff; }
 .review-calendar-today { width:100%; margin-top:12px; padding:8px; border:1px solid #dce9dc; border-radius:6px; background:#f7fbf7; color:#3d704a; font-size:12px; }
+.chat-head { position:relative; }
+.review-chat-button { margin-left:10px; padding:4px 9px; border:1px solid #b9d7be; border-radius:6px; background:#f2faf3; color:#2f7d54; font-size:12px; cursor:pointer; }
+.review-chat-button:hover { background:#e5f4e7; }
+.review-loop-note { margin:-8px 0 18px; padding:10px 12px; border-left:3px solid #70a77c; background:#f5faf4; color:#55715c; font-size:13px; line-height:1.55; }
+.review-loop-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.review-wide-field { grid-column:span 2; }
+.review-loop-fields .daily-review-field textarea { min-height:86px; }
+.review-countermeasure-line { display:flex; align-items:center; gap:10px; margin-top:14px; color:#607665; font-size:12px; }
+.review-countermeasure-line label { display:flex; align-items:center; gap:7px; }
+.review-countermeasure-line select { width:auto; padding:6px 8px; }
+.review-countermeasure-line .hint { margin-left:auto; }
+.review-escalation { display:flex; flex-direction:column; gap:4px; margin-top:14px; padding:12px 14px; border:1px solid #ecd9b3; border-radius:7px; background:#fffaf0; color:#7c5b2b; font-size:12px; line-height:1.55; }
+.review-verification { display:grid; gap:10px; margin-top:16px; padding:14px; border:1px solid #cddfce; border-radius:8px; background:#f8fcf8; }
+.review-verification p { margin:6px 0 0; color:#46654d; line-height:1.55; }
+.review-verification-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.review-verification-option { display:flex; align-items:center; gap:7px; padding:8px 10px; border:1px solid #dce9dc; border-radius:6px; background:#fff; color:#4f6c55; font-size:12px; cursor:pointer; }
+.review-verification small { color:#829184; }
+.review-more-fields { margin-top:16px; border-top:1px solid #e6efe5; }
+.review-more-fields summary { padding:11px 0 3px; color:#4e765a; cursor:pointer; font-size:12px; font-weight:650; }
+.review-category-summary { margin-top:20px; padding-top:16px; border-top:1px solid #e6efe5; }
+.review-category-summary h4 { margin:0 0 10px; color:#345b3f; font-size:14px; }
+.review-category-grid { display:grid; gap:8px; }
+.review-category-card { padding:10px; border:1px solid #e2ece2; border-radius:7px; background:#fbfdfb; }
+.review-category-card.has-entry { border-color:#cfe2d1; background:#f7fbf7; }
+.review-category-card-head { display:flex; justify-content:space-between; gap:8px; color:#3b6d49; font-size:12px; }
+.review-category-card-head span { color:#879489; font-size:11px; }
+.review-category-card small, .review-category-card p { display:block; margin:6px 0 0; color:#718173; font-size:11px; line-height:1.45; }
+.review-category-card p { color:#4f6c55; }
+.review-category-card .review-muted { color:#a0aca1; }
+.review-repeat-grid { display:grid; gap:7px; }
+.review-repeat-card { display:grid; gap:3px; padding:9px 10px; border:1px solid #e2ece2; border-radius:7px; background:#fbfdfb; }
+.review-repeat-card strong { color:#46654d; font-size:12px; line-height:1.45; }
+.review-repeat-card span, .review-repeat-card small { color:#829184; font-size:10.5px; line-height:1.4; }
+.review-repeat-card small { color:#63806a; }
 @media (max-width:900px) { .daily-review-workspace { grid-template-columns:1fr; } .daily-review-calendar { grid-row:1; } .review-calendar-grid { max-width:440px; margin:0 auto; } .daily-review-fields { grid-template-columns:1fr; } .daily-review-field textarea { min-height:120px; } }
 @media (max-width:1180px) { .life-entry-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:560px) { .life-workspace .life-hero { padding:18px; } .life-entry-grid { grid-template-columns:1fr; gap:10px; } .life-entry-card { min-height:104px; padding:16px; } .life-entry-card strong { font-size:16px; } .life-entry-card small { font-size:12px; } .life-entry-icon { width:42px; height:42px; } .life-entry-icon svg { width:23px; height:23px; } .life-section { padding:16px; } .habit-add-fab, .life-add-fab { right:18px; bottom:18px; } .habit-add-panel, .life-add-panel { right:18px; bottom:76px; } }
@@ -1283,6 +1324,11 @@ body {
   .daily-review-heading { margin-bottom: 14px; }
   .daily-review-heading h3 { font-size: 20px; }
   .daily-review-fields { gap: 10px; }
+  .review-loop-fields { grid-template-columns:1fr; }
+  .review-wide-field { grid-column:auto; }
+  .review-countermeasure-line { flex-wrap:wrap; }
+  .review-countermeasure-line .hint { width:100%; margin-left:0; }
+  .review-verification-options { grid-template-columns:1fr; }
   .daily-review-field textarea { min-height: 112px; }
   .review-calendar-grid { max-width: 100%; }
   .workspace-card { padding: 14px; }

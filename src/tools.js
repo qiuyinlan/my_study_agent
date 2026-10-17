@@ -41,6 +41,7 @@ import { buildActionDiagnosticsExport } from './action-diagnostics.js';
 import { buildMarkdownExport, markdownStats } from './exportmd.js';
 import { listMicroHabits, changeMicroHabit, getTodayHabitSnapshot, loadMicroHabitState } from './microhabit.js';
 import { listLifeNavigation, changeLifeNavigation } from './life.js';
+import { saveDailyReview } from './dailyReview.js';
 import { endOfToday, dateStr, nowISO, daysUntil, download } from './util.js';
 
 /* ══════════════ 辅助 ══════════════ */
@@ -512,6 +513,20 @@ const IMPL = {
       triggers, thoughts, reframes, action, lesson,
       taskId: t?.id || '',
     });
+    if (kind === 'daily') {
+      const reviewDate = date || rec.date || dateStr();
+      const mistake = String(whatHappened || actual || planned || '').trim();
+      const prevention = String(lesson || action || '').trim();
+      saveDailyReview(reviewDate, {
+        events: String(actual || '').trim(),
+        mistake,
+        mistakeKey: mistake.toLowerCase(),
+        trigger: Array.isArray(triggers) ? triggers.join('；') : String(triggers || ''),
+        countermeasure: prevention,
+        countermeasureType: 'task',
+        category: 'study',
+      });
+    }
     return lock(
       `复盘已保存（${rec.kind}，${rec.date}）。\n`
       + `- 事实：${rec.facts.whatHappened || '（未填）'}\n`

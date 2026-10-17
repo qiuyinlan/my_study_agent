@@ -310,7 +310,9 @@ check('顶栏品牌已渲染', $('#brand-name')?.textContent === '帕尼尼', $(
 check('今日面板有内容', $('#view-today').innerHTML.length > 20);
 check('今日复盘只包含事件、改进、肯定三项',
   $$('#view-today [data-review-field]').map(field => field.dataset.reviewField).join(',') === 'events,review,positive');
-check('今日复盘显示月历日期', $$('#view-today [data-review-date]').length >= 28);
+check('复盘显示七天且所选日期居中',
+  $$('#view-today [data-review-date]').length === 7
+    && $('#view-today [data-review-date].is-selected') === $$('#view-today [data-review-date]')[2]);
 const reviewEventField = $('#view-today [data-review-field="events"]');
 let copiedReview = '';
 Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
@@ -841,6 +843,12 @@ await openPanel('tasks');
 check('新建的任务出现在任务面板', ($('#view-tasks')?.textContent || '').includes('写论文引言'));
 check('任务显示 P0 优先级', ($('#view-tasks')?.textContent || '').includes('P0'));
 check('任务页提供最近七天日期切换', Boolean($('#view-tasks [data-task-date]')));
+const taskWeekDates = $$('#view-tasks [data-task-date]').map(button => button.dataset.taskDate);
+const taskLocalToday = new Date();
+const taskToday = `${taskLocalToday.getFullYear()}-${String(taskLocalToday.getMonth() + 1).padStart(2, '0')}-${String(taskLocalToday.getDate()).padStart(2, '0')}`;
+check('任务日期条以今天居中显示前两天和后四天', taskWeekDates.length === 7
+  && taskWeekDates[2] === taskToday
+  && taskWeekDates.every((date, index) => date === new Date(new Date(`${taskToday}T12:00:00`).getTime() + (index - 2) * 86400000).toISOString().slice(0, 10)));
 check('任务页提供日历日期选择器', Boolean($('#view-tasks [data-task-date-picker]')));
 check('任务卡片提供完成勾选框', Boolean($('#view-tasks [data-task-check]')));
 check('手动任务状态不再显示可选下拉', !$('#task-state')?.matches('select'));
@@ -921,7 +929,7 @@ check('学习入口按推进、回顾、积累分组', $$('#view-learning .learn
 check('学习页显示今日专注时长', /(?:\d+h\d{2}min|\d+min)/.test($('#view-learning .learning-focus')?.textContent || ''),
   $('#view-learning .learning-focus')?.textContent);
 check('学习工作台入口在桌面布局中完整呈现', $$('#view-learning [data-learning-panel]').length === 6);
-check('学习入口任务数按主要任务|杂事展示', /\d+\|\d+/.test($('#view-learning [data-learning-panel="tasks"]')?.textContent || ''),
+check('学习入口任务数按主要任务|杂事|微习惯展示', /\d+\|\d+\|\d+/.test($('#view-learning [data-learning-panel="tasks"]')?.textContent || ''),
   $('#view-learning [data-learning-panel="tasks"]')?.textContent);
 
 let panelOk = 0;

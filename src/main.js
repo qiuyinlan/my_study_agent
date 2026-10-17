@@ -559,7 +559,7 @@ async function handleEvent(e) {
   }
 }
 
-async function send(text, { skipIntent = false } = {}) {
+async function send(text, { skipIntent = false, hiddenUser = false } = {}) {
   const content = String(text || '').trim();
   if (!content || busy) return;
 
@@ -599,13 +599,14 @@ async function send(text, { skipIntent = false } = {}) {
   controller = new AbortController();
   turnErrorRendered = false;
 
-  chat.appendUser(content, profile);
+  if (!hiddenUser) chat.appendUser(content, profile);
   chat.startAssistant(profile);
 
   try {
     await runTurn({
       userText: content,
       codeNote,
+      hiddenUser,
       profileInterview: aboutInterview.active || endingAboutInterview,
       model: null,
       signal: controller.signal,
@@ -819,6 +820,18 @@ function wireTopbar() {
     setNavigationCollapsed(!uiState.navCollapsed);
   };
   $('#nav-backdrop').onclick = () => setNavigationCollapsed(true);
+  $('#btn-start-review').onclick = async () => {
+    if (busy) { toast('等当前对话结束再开始复盘', 'warn'); return; }
+    setWorkspaceMode('chat');
+    try {
+      await createSession('每日复盘');
+      await refreshChat();
+      await refreshPending();
+      await send('进入每日复盘对话。请你直接对用户说：“现在开始。第一条错误，你来描述：不要写‘我拖延了’这种结论，我要的是具体的事：1. 发生了什么：哪天、哪个时段、你原本要做什么。2. 触发条件：那之前你刚做了什么、在什么地方、手上有什么东西。3. 当时的错误动作：你实际做了什么去替换它。4. 你觉得自己真正需要改的地方：先说你的判断，我再核对。” 一条一条来，先只问第一条。每天最多处理 3 条，是为了抓重点、找主要矛盾，不要设太多。收集到具体信息后再一起生成可在明天验证的防错动作，询问是否加入明天任务或临时微习惯；还要询问这条规则在生活中是否应用、如何考量效果。相同错误连续出现 3 次时升级处理，检查环境、任务安排及睡眠、情绪或身体因素。', { hiddenUser: true, skipIntent: true });
+    } catch (error) {
+      toast(`开始复盘失败：${error.message}`, 'err');
+    }
+  };
   $('#btn-about-me').onclick = async () => {
     if (busy) { toast('等当前对话说完再开始访谈', 'warn'); return; }
     setWorkspaceMode('chat');

@@ -1,12 +1,27 @@
 import { esc, icon, toast } from './ui.js';
 import { dateStr } from './util.js';
-import { pruneMicroHabitHistory } from './microhabit.js';
+import { changeMicroHabit, pruneMicroHabitHistory } from './microhabit.js';
+import { upsertTask } from './db.js';
 import { getSupabaseClient } from './supabase.js';
 
 const LOCAL_PREFIX = 'msa.daily-review.v1:';
 const QUEUE_KEY = 'msa.daily-review-sync.v1';
 const MICRO_HABIT_KEY = 'micro-habit-local-state-v1';
-const FIELDS = ['events', 'review', 'positive'];
+const FIELDS = [
+  'events', 'review', 'positive', 'category', 'mistake', 'trigger',
+  'countermeasure', 'verification', 'countermeasureType', 'countermeasureAddedAt', 'countermeasureRef', 'mistakeKey',
+];
+const REVIEW_CATEGORIES = [
+  ['study', '学习'], ['routine', '生活作息'], ['work', '工作'], ['relationship', '人际'], ['other', '其他'],
+];
+const VERIFICATION_OPTIONS = [
+  ['effective', '已执行，并且有效'], ['ineffective', '已执行，但没有效果'],
+  ['missed', '没执行'], ['not_applicable', '不适用'],
+];
+const REVIEW_LABELS = {
+  events: '事件', review: '改进', positive: '肯定', category: '分类',
+  mistake: '今天最想避免重复的错误', trigger: '触发条件', countermeasure: '明天的防错动作',
+};
 const LABELS = { events: '事件', review: '改进', positive: '肯定' };
 let session = null;
 let changeHandler = null;
@@ -47,7 +62,10 @@ async function syncReviewHistory() {
 
 const localKey = date => `${LOCAL_PREFIX}${date}`;
 const monthKey = date => date.slice(0, 7);
-const blank = date => ({ date, events: '', review: '', positive: '' });
+const blank = date => ({
+  date, events: '', review: '', positive: '', category: 'study', mistake: '', trigger: '',
+  countermeasure: '', verification: '', countermeasureType: 'task', countermeasureAddedAt: '', countermeasureRef: '', mistakeKey: '',
+});
 
 function readLocal(date) {
   try {
@@ -274,7 +292,9 @@ async function flushQueue() {
 }
 
 export function saveDailyReview(date, patch) {
-  const safePatch = Object.fromEntries(FIELDS.map(key => [key, String(patch[key] ?? '')]));
+  const safePatch = Object.fromEntries(FIELDS
+    .filter(key => Object.prototype.hasOwnProperty.call(patch || {}, key))
+    .map(key => [key, String(patch[key] ?? '')]));
   const next = { ...readLocal(date), ...safePatch, date };
   localStorage.setItem(localKey(date), JSON.stringify(next));
   const queue = readQueue();
@@ -322,7 +342,167 @@ let selectedDate = dateStr();
 let renderToken = 0;
 let saveTimer = null;
 
+function categoryLabel(value) {
+  return REVIEW_CATEGORIES.find(([key]) => key === value)?.[1] || '其他';
+}
+
+function dateOffset(value, amount) {
+  const d = new Date(`${value}T12:00:00`);
+  d.setDate(d.getDate() + amount);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function entryForDate(date) {
+  return { ...readLocal(date), ...(readQueue()[date] || {}), date };
+}
+
+function reviewHistory(entries) {
+  return entries.filter(item => String(item.mistake || '').trim());
+}
+
+function categoryCards(entries) {
+  const grouped = new Map(REVIEW_CATEGORIES.map(([key, label]) => [key, []]));
+  entries.forEach(entry => grouped.get(entry.category || 'other')?.push(entry));
+  return REVIEW_CATEGORIES.map(([key, label]) => {
+    const items = grouped.get(key) || [];
+    const latest = items.slice().sort((a, b) => b.date.localeCompare(a.date))[0];
+    return `<article class="review-category-card ${items.length ? 'has-entry' : ''}">
+      <div class="review-category-card-head"><strong>${label}</strong><span>${items.length} 条</span></div>
+      ${latest ? `<small>${esc(latest.date)} · ${esc(latest.mistake || '未写重复错误')}</small><p>${esc(latest.countermeasure || '还没有防错动作')}</p>` : '<p class="review-muted">还没有记录</p>'}
+    </article>`;
+  }).join('');
+}
+
+function repeatCards(entries) {
+  const groups = new Map();
+  entries.forEach(entry => {
+    const key = entry.mistakeKey || String(entry.mistake || '').trim().toLowerCase();
+    if (!key) return;
+    const item = groups.get(key) || { title: entry.mistake, count: 0, latest: entry.date, action: entry.countermeasure };
+    item.count += 1;
+    if (entry.date >= item.latest) { item.latest = entry.date; item.action = entry.countermeasure; }
+    groups.set(key, item);
+  });
+  return [...groups.values()].sort((a, b) => b.count - a.count || b.latest.localeCompare(a.latest)).slice(0, 5)
+    .map(item => `<article class="review-repeat-card"><strong>${esc(item.title)}</strong><span>出现 ${item.count} 次 · 最近 ${esc(item.latest)}</span><small>${item.count >= 3 ? '需要升级' : `当前方案：${item.action ? esc(item.action) : '待生成'}`}</small></article>`).join('');
+}
+
+function verificationOptions(entry) {
+  return VERIFICATION_OPTIONS.map(([value, label]) => `<label class="review-verification-option"><input type="radio" name="review-verification" value="${value}" ${entry.verification === value ? 'checked' : ''}><span>${label}</span></label>`).join('');
+}
+
+async function addCountermeasure(entry) {
+  const action = String(entry.countermeasure || '').trim();
+  if (!action) return;
+  const tomorrow = dateOffset(entry.date, 1);
+  const category = entry.category === 'study' ? 'study' : 'other';
+  let target;
+  if (entry.countermeasureType === 'microhabit') {
+    target = changeMicroHabit({ action: 'add', title: action });
+  } else {
+    target = await upsertTask({
+      title: action,
+      category: 'important',
+      area: category,
+      dueAt: tomorrow,
+      estimateMin: 5,
+      notes: `来自 ${entry.date} 复盘 · 防错动作`,
+    });
+  }
+  saveDailyReview(entry.date, { countermeasureAddedAt: new Date().toISOString(), countermeasureRef: target?.id || '' });
+  toast(entry.countermeasureType === 'microhabit' ? '已加入微习惯' : '已加入明天任务', 'ok');
+}
+
 export async function renderDailyReview(root) {
+  const token = ++renderToken;
+  const date = selectedDate;
+  const month = monthKey(date);
+  const [entry, days] = await Promise.all([loadDailyReview(date), listDailyReviewDates(month)]);
+  if (token !== renderToken) return;
+  const history = reviewHistory([...days].map(entryForDate));
+  const effective = history.filter(item => item.verification === 'effective').slice().sort((a, b) => b.date.localeCompare(a.date));
+  const sameMistakes = entry.mistakeKey
+    ? history.filter(item => item.mistakeKey === entry.mistakeKey)
+    : history.filter(item => String(item.mistake || '').trim() === String(entry.mistake || '').trim());
+  const previous = await loadDailyReview(dateOffset(date, -1));
+  const awaitingVerification = previous.countermeasure && !previous.verification && previous.date !== date;
+  const [year, monthNumber] = month.split('-').map(Number);
+  const weekDates = Array.from({ length: 7 }, (_, index) => dateOffset(date, index - 2));
+  const dateSet = new Set(days);
+  for (const dayDate of weekDates) {
+    const dayEntry = entryForDate(dayDate);
+    if (FIELDS.some(key => String(dayEntry[key] || '').trim())) dateSet.add(dayDate);
+  }
+  const cells = weekDates.map(value => {
+    const weekday = ['日', '一', '二', '三', '四', '五', '六'][new Date(`${value}T12:00:00`).getDay()];
+    const selected = value === date;
+    return `<button type="button" class="review-calendar-day review-week-day ${selected ? 'is-selected' : ''} ${dateSet.has(value) ? 'has-entry' : ''}" data-review-date="${value}" aria-current="${selected ? 'date' : 'false'}"><span>${value === dateStr() ? '今天' : `周${weekday}`}</span><strong>${Number(value.slice(-2))}</strong><i></i></button>`;
+  }).join('');
+  const sync = getDailyReviewSyncStatus();
+  const categorySelect = REVIEW_CATEGORIES.map(([key, label]) => `<option value="${key}" ${entry.category === key ? 'selected' : ''}>${label}</option>`).join('');
+  const typeSelect = `<option value="task" ${entry.countermeasureType !== 'microhabit' ? 'selected' : ''}>明天任务</option><option value="microhabit" ${entry.countermeasureType === 'microhabit' ? 'selected' : ''}>临时微习惯</option>`;
+  root.innerHTML = `<section class="daily-review-workspace review-loop-workspace" data-daily-review>
+    <div class="daily-review-main">
+      <header class="daily-review-heading"><div><span class="habit-kicker">DAILY REVIEW</span><h3>${date === dateStr() ? '今日复盘' : '每日复盘'}</h3><p>${esc(date)}</p></div><span class="review-sync-status" data-review-sync>${esc(sync.message)}</span></header>
+      <div class="review-loop-note">每天只处理一个最重要的重复错误，把复盘变成明天能执行的一个动作。</div>
+      <div class="review-loop-fields">
+        <label class="daily-review-field"><span>分类</span><select data-review-loop-field="category">${categorySelect}</select></label>
+        <label class="daily-review-field review-wide-field"><span>今天最想避免重复的错误</span><textarea rows="2" data-review-loop-field="mistake" placeholder="例如：明知道要做，却一直拖到晚上">${esc(entry.mistake || '')}</textarea></label>
+        <label class="daily-review-field"><span>触发条件</span><textarea rows="2" data-review-loop-field="trigger" placeholder="错误发生前发生了什么？">${esc(entry.trigger || '')}</textarea></label>
+        <label class="daily-review-field review-wide-field"><span>明天的防错动作</span><textarea rows="2" data-review-loop-field="countermeasure" placeholder="具体到动作和时间，能在明天判断是否执行">${esc(entry.countermeasure || '')}</textarea></label>
+      </div>
+      <div class="review-countermeasure-line"><label>加入方式<select data-review-loop-field="countermeasureType">${typeSelect}</select></label><button type="button" class="primary" data-add-countermeasure ${entry.countermeasureAddedAt ? 'disabled' : ''}>${entry.countermeasureAddedAt ? '已加入明天' : '确认加入明天'}</button><span class="hint">任务页面只显示当天需要执行的动作</span></div>
+      ${sameMistakes.length >= 3 ? `<div class="review-escalation"><strong>这个问题已出现 ${sameMistakes.length} 次，需要升级处理。</strong><span>重新定义问题，检查环境和任务安排，必要时增加外部限制或寻求现实中的帮助。</span></div>` : ''}
+      ${awaitingVerification ? `<section class="review-verification"><div><strong>昨天的防错规则</strong><p>${esc(previous.countermeasure)}</p></div><div class="review-verification-options">${verificationOptions(previous)}</div><small>已执行且有效会保留；无效则修改规则，没执行则降低动作门槛。</small></section>` : ''}
+      <details class="review-more-fields"><summary>补充今天的记录</summary><div class="daily-review-fields">${['events', 'review', 'positive'].map(key => `<label class="daily-review-field"><span>${key === 'events' ? '事件' : key === 'review' ? '改进' : '肯定'}</span><textarea rows="3" data-review-field="${key}" placeholder="${key === 'events' ? '今天发生了什么？' : key === 'review' ? '下次可以怎样调整？' : '今天哪些地方值得肯定？'}">${esc(entry[key] || '')}</textarea></label>`).join('')}</div></details>
+      <div class="daily-review-save-line"><span data-review-save-state>自动保存</span><button type="button" class="ghost" data-review-copy>复制复盘</button></div>
+    </div>
+    <aside class="daily-review-calendar" aria-label="复盘日历">
+      <div class="review-calendar-head"><button type="button" data-review-month="-1" aria-label="上个月">${icon('chevron-left')}</button><strong>${year}年${monthNumber}月</strong><button type="button" data-review-month="1" aria-label="下个月">${icon('chevron-right')}</button></div>
+      <div class="review-week-strip">${cells}</div><button type="button" class="review-calendar-today" data-review-today>回到今天</button>
+      <section class="review-category-summary"><h4>分类查看</h4><div class="review-category-grid">${categoryCards(history)}</div></section>
+      <section class="review-category-summary"><h4>重复问题</h4><div class="review-repeat-grid">${repeatCards(history) || '<p class="review-muted">还没有重复问题记录</p>'}</div></section>
+      <section class="review-category-summary"><h4>有效方案</h4><div class="review-repeat-grid">${effective.length ? effective.slice(0, 5).map(item => `<article class="review-repeat-card"><strong>${esc(item.countermeasure)}</strong><span>${categoryLabel(item.category)} · ${esc(item.date)}</span></article>`).join('') : '<p class="review-muted">完成次日验证后会沉淀在这里</p>'}</div></section>
+    </aside>
+  </section>`;
+  root.querySelector('[data-add-countermeasure]')?.addEventListener('click', async () => {
+    await saveVisibleReview(root);
+    await addCountermeasure(entryForDate(date));
+    await renderDailyReview(root);
+  });
+  root.querySelectorAll('[data-review-verification]').forEach(node => node.addEventListener('change', () => {}));
+  root.querySelectorAll('.review-verification-option input').forEach(node => node.addEventListener('change', () => {
+    saveDailyReview(previous.date, { verification: node.value });
+    toast('已记录昨天的验证结果', 'ok');
+  }));
+  root.querySelector('[data-review-copy]')?.addEventListener('click', async () => {
+    const sections = ['events', 'review', 'positive', 'mistake', 'trigger', 'countermeasure'].map(key => {
+      const field = root.querySelector(`[data-review-field="${key}"], [data-review-loop-field="${key}"]`);
+      const value = field?.value?.trim();
+      return value && REVIEW_LABELS[key] ? `${REVIEW_LABELS[key]}\n${value}` : '';
+    }).filter(Boolean);
+    try { await navigator.clipboard.writeText([`#${date.replaceAll('-', '/')}/日记`, ...sections].join('\n\n')); toast('复盘已复制'); }
+    catch { toast('复制失败，请检查浏览器剪贴板权限', 'err'); }
+  });
+  root.querySelectorAll('[data-review-date]').forEach(button => button.addEventListener('click', async () => {
+    await saveVisibleReview(root); selectedDate = button.dataset.reviewDate; await renderDailyReview(root);
+  }));
+  root.querySelectorAll('[data-review-month]').forEach(button => button.addEventListener('click', async () => {
+    await saveVisibleReview(root); const nextMonth = shiftMonth(selectedDate.slice(0, 7), Number(button.dataset.reviewMonth));
+    const [nextYear, nextMonthNumber] = nextMonth.split('-').map(Number);
+    selectedDate = `${nextMonth}-${String(Math.min(Number(selectedDate.slice(-2)), new Date(nextYear, nextMonthNumber, 0).getDate())).padStart(2, '0')}`;
+    await renderDailyReview(root);
+  }));
+  root.querySelector('[data-review-today]')?.addEventListener('click', async () => { await saveVisibleReview(root); selectedDate = dateStr(); await renderDailyReview(root); });
+  root.querySelectorAll('[data-review-field], [data-review-loop-field]').forEach(field => field.addEventListener('input', () => {
+    const status = root.querySelector('[data-review-save-state]'); if (status) status.textContent = '正在保存…';
+    clearTimeout(saveTimer); saveTimer = setTimeout(() => { void saveVisibleReview(root); }, 650);
+  }));
+  root.querySelectorAll('[data-review-field], [data-review-loop-field]').forEach(field => field.addEventListener('change', () => { void saveVisibleReview(root); }));
+  root.querySelectorAll('[data-review-field], [data-review-loop-field]').forEach(field => field.addEventListener('blur', () => { if (saveTimer) void saveVisibleReview(root); }));
+}
+
+async function renderLegacyDailyReview(root) {
   const token = ++renderToken;
   const date = selectedDate;
   const month = monthKey(date);
@@ -412,7 +592,15 @@ export async function renderDailyReview(root) {
 async function saveVisibleReview(root) {
   if (!root.querySelector('[data-daily-review]')) return;
   clearTimeout(saveTimer);
-  const patch = Object.fromEntries(Array.from(root.querySelectorAll('[data-review-field]'), field => [field.dataset.reviewField, field.value]));
+  const previous = entryForDate(selectedDate);
+  const fields = [...root.querySelectorAll('[data-review-field], [data-review-loop-field]')];
+  const patch = Object.fromEntries(fields.map(field => [field.dataset.reviewField || field.dataset.reviewLoopField, field.value]));
+  for (const key of ['category', 'countermeasureType', 'mistake', 'trigger', 'countermeasure']) {
+    const value = String(patch[key] || '');
+    const defaultValue = key === 'category' ? 'study' : key === 'countermeasureType' ? 'task' : '';
+    if (value === defaultValue && String(previous[key] || defaultValue) === defaultValue) delete patch[key];
+  }
+  if (patch.mistake) patch.mistakeKey = patch.mistake.trim().toLowerCase();
   saveDailyReview(selectedDate, patch);
   const status = root.querySelector('[data-review-save-state]');
   if (status) status.textContent = session ? '已保存 · 正在同步' : '已保存在本机';

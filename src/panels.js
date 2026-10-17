@@ -64,17 +64,19 @@ export function renderLearning(s, h) {
   const activeTasks = s.active || [];
   const important = activeTasks.filter(t => (t.category || (['P0', 'P1'].includes(t.priority) ? 'important' : 'chore')) === 'important').length;
   const chores = activeTasks.length - important;
-  const active = `${important}|${chores}`;
+  const habitSnapshot = getHabitSnapshot();
+  const habits = Math.max(0, habitSnapshot.active.length - habitSnapshot.done.length);
+  const active = `${important}|${chores}|${habits}`;
   const done = s.doneToday?.length || 0;
   const trackedMinutes = Math.max(0, Number(s.trackedMinutes) || 0);
   const focusDuration = fmtFocusDuration(trackedMinutes);
   el.innerHTML = `<div class="learning-workspace">
     <section class="learning-hero">
       <div><span class="habit-kicker">STUDY WORKSPACE</span><h3>学习</h3><p>任务负责推进，规划负责拆解，日志记录每天实际学了什么。</p></div>
-      <div class="learning-stats"><strong>${done}<small> 完成</small></strong><span>主要任务 | 杂事：${active}</span><strong class="learning-focus">${focusDuration}<small> 今日专注</small></strong></div>
+      <div class="learning-stats"><strong>${done}<small> 完成</small></strong><span>主要任务 | 杂事 | 微习惯：${active}</span><strong class="learning-focus">${focusDuration}<small> 今日专注</small></strong></div>
     </section>
     <section class="learning-group"><h4>推进学习</h4><div class="learning-cards">
-      <button class="learning-card primary-card" data-learning-panel="tasks"><span class="learning-card-top"><strong>任务</strong><b>${active}</b></span><small>主要任务 | 杂事</small></button>
+      <button class="learning-card primary-card" data-learning-panel="tasks"><span class="learning-card-top"><strong>任务</strong><b>${active}</b></span><small>主要任务 | 杂事 | 微习惯</small></button>
       <button class="learning-card" data-learning-panel="plans"><span class="learning-card-top"><strong>规划</strong><b>›</b></span><small>把较大的目标拆成阶段和行动步骤</small></button>
     </div></section>
     <section class="learning-group"><h4>记录与回顾</h4><div class="learning-cards">
@@ -398,10 +400,10 @@ export function renderTasks(s, h) {
   if (!el) return;
   const dayTasks = tasksForDate(s.tasks, selectedTaskDate);
   const out = ['<div class="tasks-workspace">'];
-  const week = Array.from({ length: 7 }, (_, index) => addDays(selectedTaskDate, index - 6));
+  const week = Array.from({ length: 7 }, (_, index) => addDays(selectedTaskDate, index - 2));
   const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
   const dateCount = date => s.tasks.filter(task => taskDateForStrip(task) === date).length;
-  out.push(`<div class="task-date-head"><strong>最近七天</strong><label class="task-calendar" title="选择具体日期">${icon('today')}<input type="date" value="${selectedTaskDate}" data-task-date-picker aria-label="选择任务日期"></label></div>`);
+  out.push(`<div class="task-date-head"><strong>任务日期</strong><label class="task-calendar" title="选择具体日期">${icon('today')}<input type="date" value="${selectedTaskDate}" data-task-date-picker aria-label="选择任务日期"></label></div>`);
   out.push(`<nav class="task-date-strip" aria-label="任务日期">${week.map(date => {
     const d = new Date(`${date}T00:00:00`);
     const today = date === dateStr();
@@ -864,6 +866,10 @@ export async function renderReviews(s, h) {
   </div>`);
 
   el.innerHTML = out.join('');
+  const dailyRoot = document.createElement('div');
+  dailyRoot.className = 'review-loop-panel-root';
+  el.prepend(dailyRoot);
+  await renderDailyReview(dailyRoot);
   $('#btn-blackroom')?.addEventListener('click', () => h.onCommand?.('blackroom'));
 }
 

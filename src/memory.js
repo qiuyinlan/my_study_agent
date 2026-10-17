@@ -306,7 +306,7 @@ export function fmtPatternBlock(patterns, checkinTrend) {
  * 组装发给模型的消息数组。
  * @returns {Promise<{messages:Array, debug:object, intent:object}>}
  */
-export async function buildMessages({ sessionId, userText = '', codeNote = '' }) {
+export async function buildMessages({ sessionId, userText = '', hiddenUserText = '', codeNote = '' }) {
   const [profile, tasks, topics, logs, session, messages, memories] = await Promise.all([
     getProfile(),
     listTasks(),
@@ -423,6 +423,7 @@ export async function buildMessages({ sessionId, userText = '', codeNote = '' })
   if (userText && history[history.length - 1]?.content !== userText) {
     history.push({ role: 'user', content: userText });
   }
+  if (hiddenUserText) history.push({ role: 'user', content: hiddenUserText });
 
   const stats = promptStats(systemPrompt);
 

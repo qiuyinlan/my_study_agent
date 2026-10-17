@@ -193,12 +193,14 @@ async function executeGenericWritePlan({ plan, session, userMessage, userText, e
  * @param {AbortSignal} [o.signal]
  * @param {(e:object)=>void} [o.onEvent]
  */
-export async function runTurn({ userText, codeNote = '', model = null, signal, onEvent, profileInterview = false }) {
+export async function runTurn({ userText, codeNote = '', model = null, signal, onEvent, profileInterview = false, hiddenUser = false }) {
   const emit = e => { try { return onEvent?.(e); } catch (err) { console.error('[onEvent]', err); } };
 
   const session = await ensureSession();
-  const userMessage = await addMessage({ sessionId: session.id, role: 'user', content: userText });
-  await autoTitle(session, userText);
+  const userMessage = hiddenUser
+    ? { id: `hidden_${Date.now()}`, sessionId: session.id }
+    : await addMessage({ sessionId: session.id, role: 'user', content: userText });
+  if (!hiddenUser) await autoTitle(session, userText);
 
   emit({ type: 'start', sessionId: session.id });
 
@@ -241,7 +243,12 @@ export async function runTurn({ userText, codeNote = '', model = null, signal, o
   // 注意是 session.id，不是 sessionId —— 这个笔误曾让整条发送链路直接抛错，
   // 而当时的测试全都绕过了 runTurn，所以没人发现。
   const turnCodeNote = [codeNote, actionNote].filter(Boolean).join('\n\n');
-  const { messages, debug, intent } = await buildMessages({ sessionId: session.id, userText, codeNote: turnCodeNote });
+  const { messages, debug, intent } = await buildMessages({
+    sessionId: session.id,
+    userText: hiddenUser ? '' : userText,
+    hiddenUserText: hiddenUser ? userText : '',
+    codeNote: turnCodeNote,
+  });
   emit({ type: 'context', debug, intent });
   let plannerConfirmedNoWrite = false;
 
