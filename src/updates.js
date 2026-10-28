@@ -126,7 +126,21 @@ export async function checkForUpdatesDaily(onAvailable = () => {}) {
   return result;
 }
 
+/**
+ * 设置页顶部的版本行。
+ * 存在的理由：用户能一眼分清"我装的是哪一版"，不用靠数导航里有几项去猜
+ * —— 之前就因为装的是旧构建（导航只有 6 项、没有通知页）而以为功能没做。
+ */
+export function renderVersionLine() {
+  const line = document.querySelector('#app-version-line');
+  if (!line) return;
+  line.textContent = isAndroidApp()
+    ? `My Study Agent v${APP_VERSION}（Android App）`
+    : '网页版 · 刷新页面即最新。手机通知和自动更新只存在于 Android App。';
+}
+
 export function bindUpdateSettings() {
+  renderVersionLine();
   const section = document.querySelector('#app-update-settings');
   const status = document.querySelector('#app-update-status');
   const checkButton = document.querySelector('#btn-check-app-update');
@@ -135,7 +149,10 @@ export function bindUpdateSettings() {
   if (!section || !status || !checkButton || !downloadButton || !installButton) return () => {};
 
   section.hidden = !isAndroidApp();
-  if (!isAndroidApp()) return () => {};
+  if (!isAndroidApp()) {
+    // 网页端也要看得到版本行，只是没有下载/安装按钮。
+    return () => {};
+  }
 
   let release = null;
   let downloadId = 0;

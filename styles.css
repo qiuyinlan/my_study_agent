@@ -186,7 +186,7 @@ textarea { resize: vertical; }
   transition: transform .18s ease, opacity .18s ease, visibility .18s;
   overflow: hidden;
 }
-.nav-items { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.nav-items { flex: 1; display: flex; flex-direction: column; gap: 1px; overflow-y: auto; overscroll-behavior: contain; }
 
 .nav-btn {
   display: flex; align-items: center; gap: 10px;
@@ -1637,3 +1637,13 @@ body.nav-collapsed .nav { width: 0; flex-basis: 0; max-height: none; min-height:
 .task-item.done { opacity: 1; }
 .task-item.done .t-name { color: #75917d; text-decoration: line-through; }
 .task-item .t-head { min-height: 30px; }
+
+/* ── 手机抽屉导航兜底：矮屏/横屏也要能划到最后一项 ─────────────
+   7 个导航项（最后一栏是「通知」）在横屏或小屏上大约 350px 高，
+   而 .nav 是 overflow:hidden 的抽屉容器。这里让导航区自己滚，
+   避免最后一项被裁掉、看起来像功能没做。这条必须放在文件末尾，
+   才能压过前面媒体查询里的 .nav-items{overflow:visible}。 */
+@media (max-width: 840px) {
+  .nav-items { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+  .nav { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+}
