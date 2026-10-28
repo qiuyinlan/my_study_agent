@@ -1,6 +1,6 @@
 {
   "name": "my-study-agent",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "private": true,
   "type": "module",
   "description": "帕尼尼 · 纯静态纯本地的个人执行监督系统。零构建、浏览器直连 DeepSeek。",

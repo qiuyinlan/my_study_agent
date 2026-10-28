@@ -23,6 +23,10 @@ public class AppUpdaterPlugin extends Plugin {
     public void downloadUpdate(PluginCall call) {
         String url = call.getString("url", "");
         String version = call.getString("version", "");
+        // 自动更新只在 Wi-Fi 下下，别烧用户流量；用户自己点「下载更新」时
+        // 一律允许移动网络 —— 否则在流量下 DownloadManager 会一直排队等 Wi-Fi，
+        // 界面上看起来就是"点了没反应"。
+        boolean allowMobileData = Boolean.TRUE.equals(call.getBoolean("allowMobileData", true));
         Uri uri = Uri.parse(url);
         if (!"https".equals(uri.getScheme()) || !"github.com".equals(uri.getHost())
                 || !uri.getPath().contains("/releases/download/") || version.isEmpty()) {
@@ -31,15 +35,26 @@ public class AppUpdaterPlugin extends Plugin {
         }
 
         try {
-            long id = enqueueDownload(getContext(), url, version);
+            long previous = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .getLong("downloadId", -1L);
+            if (previous >= 0) cancelQuietly(previous);
+            long id = enqueueDownload(getContext(), url, version, allowMobileData);
             saveDownload(getContext(), id, version);
             JSObject result = new JSObject();
             result.put("downloadId", id);
             result.put("version", version);
+            result.put("allowMobileData", allowMobileData);
             call.resolve(result);
         } catch (Exception error) {
             call.reject("Could not start APK download", error);
         }
+    }
+
+    @PluginMethod
+    public void cancelDownload(PluginCall call) {
+        long id = call.getData().optLong("downloadId", -1L);
+        if (id >= 0) cancelQuietly(id);
+        call.resolve(new JSObject());
     }
 
     @PluginMethod
@@ -100,17 +115,34 @@ public class AppUpdaterPlugin extends Plugin {
     }
 
     static long enqueueDownload(Context context, String url, String version) {
+        return enqueueDownload(context, url, version, false);
+    }
+
+    static long enqueueDownload(Context context, String url, String version, boolean allowMobileData) {
         DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
         String safeVersion = version.replaceAll("[^A-Za-z0-9._-]", "_");
+        int networks = allowMobileData
+                ? DownloadManager.Request.NETWORK_WIFI | DownloadManager.Request.NETWORK_MOBILE
+                : DownloadManager.Request.NETWORK_WIFI;
         DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url))
                 .setTitle("My Study Agent v" + version)
-                .setDescription("Downloading app update")
+                .setDescription(allowMobileData ? "Downloading app update" : "Downloading app update (Wi-Fi)")
                 .setMimeType(APK_MIME)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI)
+                .setAllowedNetworkTypes(networks)
+                .setAllowedOverRoaming(false)
                 .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS,
                         "MyStudyAgent-v" + safeVersion + ".apk");
         return manager.enqueue(request);
+    }
+
+    private void cancelQuietly(long downloadId) {
+        try {
+            DownloadManager manager = (DownloadManager) getContext().getSystemService(Context.DOWNLOAD_SERVICE);
+            manager.remove(downloadId);
+        } catch (Exception ignored) {
+            // 取消失败不影响新任务开始。
+        }
     }
 
     static void saveDownload(Context context, long id, String version) {
@@ -132,6 +164,7 @@ public class AppUpdaterPlugin extends Plugin {
             int status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
             long downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR));
             long total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES));
+            int reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON));
             String label = status == DownloadManager.STATUS_SUCCESSFUL ? "complete"
                     : status == DownloadManager.STATUS_FAILED ? "failed"
                     : status == DownloadManager.STATUS_PAUSED ? "paused"
@@ -139,9 +172,13 @@ public class AppUpdaterPlugin extends Plugin {
             result.put("status", label);
             result.put("downloadedBytes", downloaded);
             result.put("totalBytes", total);
-            if (status == DownloadManager.STATUS_FAILED) {
-                result.put("reason", cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)));
-            }
+            result.put("reason", reason);
+            // PAUSED_WAITING_FOR_NETWORK：任务在排队等它被允许的网络。
+            // 自动更新只允许 Wi-Fi，这里如实告诉前端"它在等 Wi-Fi"，
+            // 前端才好给出「用流量下载」的出口，而不是让用户对着进度干等。
+            result.put("waitingForNetwork",
+                    (status == DownloadManager.STATUS_PAUSED && reason == 198)
+                            || status == DownloadManager.STATUS_PENDING);
             return result;
         }
     }
