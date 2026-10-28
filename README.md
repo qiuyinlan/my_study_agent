@@ -72,11 +72,13 @@ python -m http.server 8000   # 能用，但有两个坑
 ```
 ✅ 页面打开时：能计时、能读写本地记录
 ❌ 页面关闭后：什么都不做，没有后台监控
-❌ 无法主动发消息（通知功能未实现）
+⚠️ 手机会员端（Android App）：能在后台按时间发提醒；网页端不可能
 ❌ 你没有时钟（时间来自设备本地时钟）
 ```
 
-这样结构上杜绝了"提示词写着能提醒、实际没实现"的漂移。将来真做了通知，改代码就同步了。
+这样结构上杜绝了"提示词写着能提醒、实际没实现"的漂移。通知做出来之后，
+`computeCapabilities()` 里的 `notificationsEnabled` 就是 `isNativePlatform()`：
+网页端不会撒谎说能提醒，App 里才敢承诺。
 
 ### 3. 不虚构历史
 
@@ -324,24 +326,34 @@ src/
   srs.js             间隔重复调度（学习模块）
   deepseek.js        流式 SSE + 工具调用拼接 + 中文错误提示
   ui.js              对话视图、计时条、图标导航
-  panels.js          8 个面板渲染
-  dialogs.js         10 个弹窗
+  panels.js          面板渲染（今日/任务/日志/通知…）
+  dialogs.js         弹窗
+  notifications.js   手机本地通知：复盘提醒、任务提醒、点通知回到对应页
+  updates.js         App 自动检查更新（GitHub Releases → DownloadManager → 系统安装器）
+  native.js      ⭐ 平台探测：网站和 Android 壳共用一套判断，src/ 下不许静态导入裸模块
   main.js            装配 + 代码动作执行
   config.js / util.js
 
 vendor/dexie.js       本地化的 Dexie（不依赖 CDN）
 
+android/              Capacitor 原生工程（MainActivity + AppUpdaterPlugin + 每日更新检查 Worker）
+docs/android.md       App 构建、通知排期、自动更新与发版流程
+
 tools/
-  check.mjs           静态检查：导入导出一致性 + DOM id
+  check.mjs           静态检查：导入导出一致性 + DOM id + 禁止裸模块导入
   tool-audit.mjs      工具描述审计（**工具选择唯一的依据就是这个**）
   tool-cost.mjs       量工具定义的 token 成本（记录"分组下发为什么被移除"）
   prompt-cost.mjs     量提示词各段占比（记录"流程为什么全量注入"）
-  smoke-test.mjs      318 项逻辑断言（fake-indexeddb，无浏览器）
-  dom-test.mjs        182 项 DOM 断言（jsdom + 桩 fetch，真的跑应用）
+  smoke-test.mjs      逻辑断言（fake-indexeddb，无浏览器）
+  dom-test.mjs        DOM 断言（jsdom + 桩 fetch，真的跑应用）
+  notification-test.mjs  通知排期断言（假插件抓参数：每日用 on、任务用 at）
+  update-test.mjs     版本号比较
   cors-probe.mjs      CORS 探针
   serve.py            本地服务器：禁缓存 + 正确 MIME
   verify-served.mjs   HTTP 送达与编码检查
   mime-check.py       MIME 诊断
+  build-android.mjs   Vite 打包 Android Web 资源
+  stage-release.mjs   把网站 + APK 打包到 release/
 ```
 
 ---
@@ -350,11 +362,13 @@ tools/
 
 ```bash
 npm install            # 只装测试工具（jsdom、fake-indexeddb），不是运行时依赖
-npm run check          # 静态检查：导入导出、DOM id
+npm run check          # 静态检查：导入导出、DOM id、裸模块导入
 npm run audit:tools    # 工具描述审计（每个工具必须说清"什么时候调我"）
-npm test               # 318 项逻辑断言
-npm run test:dom       # 182 项 DOM 断言，在 jsdom 里真的把应用跑起来
-npm run verify:all     # 四个都跑
+npm test               # 逻辑断言
+npm run test:notifications  # 通知排期参数（假插件，不需要真机）
+npm run test:updates   # 版本号比较
+npm run test:dom       # DOM 断言，在 jsdom 里真的把应用跑起来
+npm run verify:all     # 上面全部跑一遍
 npm run cost:tools     # 量工具 token 成本
 npm run cost:prompt    # 量提示词各段占比
 npm run verify:served  # 需要先起服务器
@@ -464,6 +478,22 @@ DOM 测试最初用 `wait(1500)` 等工具调用回合，机器负载高时不�
 修法：调整顺序（先刷新再恢复按钮）；面板标题加「HH:MM 更新」时间戳、刷新时闪蓝、加手动刷新按钮；给「今日」加**今日动态时间线**（学习记录 / 计时 / 完成的任务 / 打卡），让对话结果在默认面板上直接可见。
 
 **教训：** 用户说"没更新"时，要先区分是**机制没跑**还是**跑了但看不见**。我第一反应是去查代码对不对，更该问的是"他能看到什么"。
+
+**16. 网页版被一行 `import` 打断（App 却没事）。**
+通知模块第一版在文件顶部写了 `import { Capacitor } from '@capacitor/core'`。Vite 打包的 APK 一切正常，**网站却整页白屏**——因为这个项目是零构建的，浏览器直接执行 `src/*.js`，裸模块名没有打包器就解析不了（`Failed to resolve module specifier`）。`check.mjs` 当时还专门"跳过裸模块名"，等于把唯一的防线也关了。
+
+修法：新增 `src/native.js`，平台判断走运行时全局 `Capacitor`，插件在函数里用字面量 `await import(...)`；`check.mjs` 增加一条硬规则——**`src/` 下出现静态裸模块导入就直接失败**。
+
+**教训：** "网站和 APK 是同一份源码"只在**两边的加载方式都成立**时才成立。多端项目里，构建产物能跑不代表源码能跑。
+
+**17. 每日提醒会变成"每小时提醒一次"。**
+`schedule: { at, repeats: true }` 看起来是"每天这个时间重复"。但 Capacitor Android 的实现是
+`alarmManager.setRepeating(RTC, at.time, at.time - now, ...)`——它把"保存时刻到触发点"这段间隔当成了重复周期。早上 8 点保存一个 9:00 的提醒，就变成每 1 小时响一次。
+
+修法：改用 `{ on: { hour, minute }, repeats: true }`，插件每触发一次按日历重排下一次。这类错误在真机上很难看出来（第一条总是准的），所以补了 `tools/notification-test.mjs`：用假插件把排期参数抓下来断言，不需要真机。
+
+**18. 点保存才要权限 = 点了像没反应。**
+通知页原本只在"保存设置"时请求系统权限。用户点开关时页面毫无反应（尤其是 Android 13+ 首次授权），很自然会认为按钮坏了。现在**打开任一开关就立刻要权限**，保存只负责重排；再加一条「发送测试提醒」（5 秒后到），把"到底能不能收到"变成一个可自证的动作。
 
 ---
 

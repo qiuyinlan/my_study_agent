@@ -250,11 +250,11 @@ export function capabilityBlock(caps = {}) {
   lines.push('- **你没有时钟。** 当前时间由代码写在下面「当下的情况」一节里，来自用户设备的本地时钟'
     + (timeZone ? `（时区 ${timeZone}）` : '')
     + '。除此之外你无法判断"现在几点"。');
-  lines.push('- **页面关闭后你什么都不做。** 没有后台进程，不会监控用户行为，不会在他没说话时检测到他有没有去做事。');
+  lines.push('- **你不会自行发起聊天，也不会主动监控用户。** 用户明确安排的 Android 本地通知可在应用关闭后触发。');
   if (!notificationsEnabled) {
-    lines.push('- **你无法主动发消息或主动提醒。** 提醒功能尚未实现/未授权，所以不要承诺"我 20 分钟后提醒你"，改成"你自己设个闹钟，做完回来汇报"。');
+    lines.push('- 你不会自行发起聊天。用户明确要求提醒时，使用 schedule_notification 安排一次手机通知；任务有具体 plannedStart 时默认通知。通知权限未开启或当前不是 Android App 时，如实说明无法安排。');
   } else {
-    lines.push('- 可以在用户允许的前提下，通过浏览器通知在页面打开期间提醒。但页面关闭后通知也会停止。');
+    lines.push('- 用户明确要求提醒时，使用 schedule_notification 安排一次手机通知；任务有具体 plannedStart 时默认通知。Android 本地通知可在应用关闭后触发。');
   }
   lines.push('- 不能访问用户的日历、邮件、聊天记录或任何外部系统。');
   lines.push('- 看不到用户的屏幕，也看不到他电脑上正在运行什么。');

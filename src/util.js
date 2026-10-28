@@ -225,6 +225,26 @@ export function renderMarkdown(src) {
 }
 
 export function download(filename, text, mime = 'application/json') {
+  if (globalThis.Capacitor?.isNativePlatform?.()) {
+    return (async () => {
+      const [{ Filesystem, Directory, Encoding }, { Share }] = await Promise.all([
+        import('@capacitor/filesystem'),
+        import('@capacitor/share'),
+      ]);
+      const file = await Filesystem.writeFile({
+        path: filename,
+        data: String(text),
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      await Share.share({
+        title: filename,
+        url: file.uri,
+        dialogTitle: '分享或保存文件',
+      });
+    })();
+  }
+
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

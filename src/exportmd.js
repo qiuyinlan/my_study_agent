@@ -339,7 +339,7 @@ export async function buildMarkdownExport({ includeAll = false } = {}) {
 
 export async function downloadMarkdownExport(opts) {
   const md = await buildMarkdownExport(opts);
-  download(`帕尼尼监督记录-${dateStr()}.md`, md, 'text/markdown');
+  await download(`帕尼尼监督记录-${dateStr()}.md`, md, 'text/markdown');
   return md;
 }
 

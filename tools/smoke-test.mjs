@@ -62,6 +62,16 @@ const daysFromNow = n => {
 };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+const notificationTool = TOOL_DEFS.find(tool => tool.function.name === 'schedule_notification');
+check('Agent 下发了一次性手机通知工具', Boolean(notificationTool));
+check('一次性通知要求标题和时间', notificationTool?.function.parameters.required?.includes('title')
+  && notificationTool?.function.parameters.required?.includes('at'));
+const notificationProbe = await executeTool('schedule_notification', {
+  title: '测试提醒', at: new Date(Date.now() + 3600000).toISOString(),
+});
+check('网页端不会谎报已安排后台通知', Boolean(notificationProbe.error)
+  && /Android App/.test(notificationProbe.content || ''));
+
 console.log(`运行日期：${daysFromNow(0)}\n`);
 
 /* ══════════════ 1. Schema ══════════════ */
@@ -655,8 +665,8 @@ check('本地时间已生成', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(caps.local
 
 const capText = persona.capabilityBlock(caps);
 check('**明确承认没有时钟**', capText.includes('你没有时钟'));
-check('**明确承认无法主动提醒**（通知未实现）', capText.includes('无法主动发消息'));
-check('明确承认关掉页面后什么都不做', capText.includes('页面关闭后你什么都不做'));
+check('明确说明通知需要用户主动安排', capText.includes('用户明确要求提醒时'));
+check('明确说明不会自行发起聊天', capText.includes('不会自行发起聊天'));
 check('声明了真实计时可用', capText.includes('真实的计时'));
 check('说明了时间来自设备本地时钟', capText.includes('本地时钟'));
 

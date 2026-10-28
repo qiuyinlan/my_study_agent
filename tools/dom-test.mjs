@@ -252,7 +252,9 @@ const click = (sel) => {
 
 // 学习子页可从学习工作台进入；日志也提供独立一级导航。
 const openPanel = async (panel) => {
-  if (['today', 'learning', 'habits', 'life', 'records'].includes(panel)) {
+  if (panel === 'notifications') {
+    click('.nav-btn[data-panel="notifications"]');
+  } else if (['today', 'learning', 'habits', 'life', 'records'].includes(panel)) {
     click(`.nav-btn[data-panel="${panel === 'habits' ? 'tasks' : panel}"]`);
   } else {
     click('.nav-btn[data-panel="learning"]');
@@ -352,12 +354,12 @@ check('对话区显示空状态提示', $('#messages .placeholder') !== null);
 console.log('\n[2] 界面结构（左导航带文字 + SVG 图标 + 可折叠）');
 
 const navBtns = $$('.nav-btn');
-check('导航渲染 AI 对话、任务、学习、日志和生活入口', navBtns.length === 6, String(navBtns.length));
+check('导航渲染 AI 对话、任务、学习、日志、生活和通知入口', navBtns.length === 7, String(navBtns.length));
 
 const labels = navBtns.map(b => b.querySelector('.nav-label')?.textContent?.trim());
 check('每项都有文字标签', labels.every(Boolean), labels.join(','));
 check('标签就是一级面板名',
-  labels.join(',') === 'AI 对话,任务,复盘,学习,日志,生活导航', labels.join(','));
+  labels.join(',') === 'AI 对话,任务,复盘,学习,日志,生活导航,通知', labels.join(','));
 check('侧边栏任务入口显示主要任务|杂事|微习惯未完成数', /\d+\|\d+\|\d+/.test($('.nav-btn[data-panel="tasks"] .nav-badge.count')?.textContent || '')
   && $('.nav-btn[data-panel="tasks"] .nav-badge')?.title === '今日待完成主要任务 | 杂事 | 微习惯');
 check('侧边栏日志入口显示今日专注时长', /(?:\d+h\d{2}min|\d+min)/.test($('.nav-btn[data-panel="records"] .nav-badge.duration')?.textContent || '')
@@ -933,19 +935,44 @@ check('学习入口任务数按主要任务|杂事|微习惯展示', /\d+\|\d+\|
   $('#view-learning [data-learning-panel="tasks"]')?.textContent);
 
 let panelOk = 0;
-for (const panel of ['today', 'learning', 'life', 'records', 'tasks', 'points', 'plans', 'reviews', 'profile']) {
+for (const panel of ['today', 'learning', 'life', 'records', 'tasks', 'points', 'plans', 'reviews', 'profile', 'notifications']) {
   await openPanel(panel);
   const view = $(`#view-${panel}`);
   const active = view?.classList.contains('active');
   const rendered = (view?.innerHTML.length || 0) > 10;
-  const navActive = $(`.nav-btn[data-panel="${['today', 'learning', 'habits', 'life', 'tasks', 'records'].includes(panel) ? panel : 'learning'}"]`)?.classList.contains('active');
+  const navActive = $(`.nav-btn[data-panel="${['today', 'learning', 'habits', 'life', 'tasks', 'records', 'notifications'].includes(panel) ? panel : 'learning'}"]`)?.classList.contains('active');
   const titled = ($('#panel-title')?.textContent || '').length > 0;
   check(`Panel ${panel} persisted`, JSON.parse(localStorage.getItem('msa.ui.v1')).currentPanel === panel);
   if (active && rendered && navActive && titled) panelOk++;
   else check(`面板 ${panel} 可切换并渲染`, false,
     `active=${active} rendered=${rendered} navActive=${navActive} titled=${titled}`);
 }
-check('全部面板都能切换、渲染、导航高亮同步', panelOk === 9, `${panelOk}/9`);
+check('通知页展示早中晚时段和任务计划提醒', ['morning', 'noon', 'evening'].every(key => $('#view-notifications [data-notification-time="' + key + '"]'))
+  && $('#view-notifications').textContent.includes('按计划开始时间提醒'));
+
+/* 通知页：网页端点了必须"有反应"。静默什么都不发生，就是用户说的"点击没反应"。 */
+const fillToast = () => { const node = $('#toasts'); if (node) node.textContent = ''; };
+fillToast();
+const morningSlot = $('#view-notifications [data-notification-enabled="morning"]');
+morningSlot.checked = true;
+morningSlot.dispatchEvent(new window.Event('change', { bubbles: true }));
+await wait(120);
+check('网页端点早间复盘勾选框会被拒绝并说明原因',
+  morningSlot.checked === false && ($('#toasts')?.textContent || '').includes('Android App'),
+  `checked=${morningSlot.checked} toast=${$('#toasts')?.textContent}`);
+
+check('通知页提供状态行、测试提醒和精确定时入口',
+  Boolean($('#notification-status-line')) && Boolean($('#btn-test-notification')) && Boolean($('#btn-exact-alarm')),
+  $('#notification-status-line')?.textContent);
+
+click('#btn-test-notification');
+await wait(120);
+check('网页端点发送测试提醒会说明只在 App 内可用',
+  ($('#notification-status-line')?.textContent || '').includes('Android App'),
+  $('#notification-status-line')?.textContent);
+
+await openPanel('notifications');
+check('全部面板都能切换、渲染、导航高亮同步', panelOk === 10, `${panelOk}/10`);
 await openPanel('tasks');
 check('任务页按主要任务和杂事分组', $('#view-tasks .task-list-important') !== null
   && $('#view-tasks .task-list-chore') !== null);
@@ -1754,6 +1781,26 @@ check('「查看任务」走代码快路径，不消耗模型调用', fetchLog.l
 check('快路径确实切了面板', $('#view-tasks')?.classList.contains('active'));
 
 check('导出与导航流程全程没有报错', errors.length === 0, errors[0]);
+
+/* 手动补录已完成事项：沿用任务数据和选中日期。 */
+await openPanel('tasks');
+click('#view-tasks [data-record-done]');
+await waitFor(() => $('#dlg-task')?.open, { label: '打开记录已完成弹窗' });
+const manualDoneTitle = `手动完成记录-${stamp}`;
+const manualDoneDate = $('#task-due').value;
+check('记录完成弹窗使用所选日期并标明完成日期', $('#task-title')?.textContent === '记录已完成'
+  && $('[data-task-date-field]')?.textContent.includes('完成日期'));
+check('手动完成记录不提供微习惯任务分类', $('#task-category option[value="microhabit"]')?.hidden === true);
+$('#task-name').value = manualDoneTitle;
+$('#task-category').value = 'chore';
+$('#dlg-task').close('ok');
+await wait(300);
+const manualDoneTask = (await dbMod.db.tasks.toArray()).find(item => item.title === manualDoneTitle);
+check('手动补录生成 DONE 状态任务，保留普通任务分类和完成日期', manualDoneTask?.state === 'DONE'
+  && manualDoneTask.category === 'chore' && manualDoneTask.progress === 100
+  && localDate(new Date(manualDoneTask.actualEnd)) === manualDoneDate,
+  JSON.stringify({ state: manualDoneTask?.state, category: manualDoneTask?.category, actualEnd: manualDoneTask?.actualEnd }));
+check('新完成事项进入选中日期的已完成列表', $('#view-tasks .task-done-list')?.textContent.includes(manualDoneTitle));
 
 /* ══════════ 结果 ══════════ */
 

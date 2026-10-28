@@ -29,6 +29,7 @@ import {
 import { getPrivateSyncStatus, getStorageUsage, refreshPrivateSyncSession } from './privateSync.js';
 import { getTestAccess, redeemTestCode } from './workerApi.js';
 import { workerConfigured } from './workerApi.js';
+import { bindUpdateSettings } from './updates.js';
 
 const OFFICIAL_BASE = 'https://api.deepseek.com';
 
@@ -90,6 +91,7 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
   $('#btn-diag-copy').disabled = true;
   updateBaseUrlNotice();
   renderUsage(await getUsage());
+  const disposeUpdateSettings = bindUpdateSettings();
   const updateReviewSyncStatus = () => {
     const status = getDailyReviewSyncStatus();
     const node = $('#review-sync-status');
@@ -154,6 +156,7 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
   return new Promise(resolve => {
     const onClose = async () => {
       dlg.removeEventListener('close', onClose);
+      disposeUpdateSettings();
       $('#btn-test').onclick = null;
       $('#btn-settings-close').onclick = null;
       $('#set-baseurl').oninput = null;
@@ -437,18 +440,26 @@ export async function openBackup({ onChanged }) {
 
 /* ══════════════ 任务 ══════════════ */
 
-export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
+export async function openTask(taskId = null, { onChanged, onKeyTask, mode = 'task', date = '' } = {}) {
   const dlg = $('#dlg-task');
   const isNew = !taskId;
+  const recordDone = isNew && mode === 'done';
   const task = isNew ? null : await db.tasks.get(taskId);
   if (!isNew && !task) { toast('找不到这个任务', 'err'); return false; }
 
-  $('#task-title').textContent = isNew ? '新建任务' : '编辑任务';
+  $('#task-title').textContent = recordDone ? '记录已完成' : isNew ? '新建任务' : '编辑任务';
   $('#task-id').value = task?.id || '';
   $('#task-name').value = task?.title || '';
   $('#task-category').value = task?.category || (isNew || ['P0', 'P1'].includes(task?.priority) ? 'important' : 'chore');
-  $('#task-due').value = task?.dueAt || (isNew ? dateStr() : '');
+  $('#task-due').value = task?.dueAt || (isNew ? (date || dateStr()) : '');
   $('#task-estimate').value = task?.estimateMin ?? '';
+  const dateLabel = $('[data-task-date-field]').firstChild;
+  if (dateLabel) dateLabel.textContent = recordDone ? '完成日期' : '日期';
+  const habitOption = $('#task-category').querySelector('option[value="microhabit"]');
+  if (habitOption) habitOption.hidden = recordDone;
+  $('#task-meta').textContent = recordDone
+    ? '会按所选日期记录到任务页的已完成列表，并沿用任务的保留与同步规则。'
+    : '';
   const updateCategoryFields = () => {
     const isHabit = $('#task-category').value === 'microhabit';
     $('#task-due').disabled = isHabit;
@@ -503,6 +514,15 @@ export async function openTask(taskId = null, { onChanged, onKeyTask } = {}) {
           dueAt: $('#task-due').value,
           estimateMin: $('#task-estimate').value === '' ? null : Number($('#task-estimate').value),
         };
+
+        if (recordDone) {
+          const now = new Date();
+          const [year, month, day] = $('#task-due').value.split('-').map(Number);
+          const completedAt = new Date(year, month - 1, day, now.getHours(), now.getMinutes(), now.getSeconds());
+          Object.assign(payload, {
+            dueAt: '', state: 'DONE', progress: 100, actualEnd: completedAt.toISOString(),
+          });
+        }
 
         const saved = await upsertTask(payload);
         toast(isNew ? '任务已创建' : '任务已保存', 'ok');

@@ -1,11 +1,16 @@
 {
   "name": "my-study-agent",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "帕尼尼 · 纯静态纯本地的个人执行监督系统。零构建、浏览器直连 DeepSeek。",
   "scripts": {
     "serve": "python tools/serve.py",
+    "build:android": "node tools/build-android.mjs",
+    "android:sync": "npm run build:android && cap sync android && node tools/android-icons.mjs",
+    "android:open": "cap open android",
+    "android:debug": "npm run android:sync && cap run android",
+    "release:stage": "node tools/stage-release.mjs",
     "probe:ai": "node tools/cors-probe.mjs",
     "check": "node tools/check.mjs",
     "audit:tools": "node tools/tool-audit.mjs",
@@ -14,12 +19,23 @@
     "cost:prompt": "node tools/prompt-cost.mjs",
     "test": "node tools/smoke-test.mjs",
     "test:dom": "node tools/dom-test.mjs",
-    "verify": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/action-routing-eval.mjs && node tools/smoke-test.mjs",
-    "verify:all": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/action-routing-eval.mjs && node tools/smoke-test.mjs && node tools/dom-test.mjs",
+    "test:updates": "node tools/update-test.mjs",
+    "test:notifications": "node tools/notification-test.mjs",
+    "verify": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/action-routing-eval.mjs && node tools/smoke-test.mjs && node tools/update-test.mjs && node tools/notification-test.mjs",
+    "verify:all": "node tools/check.mjs && node tools/tool-audit.mjs && node tools/action-routing-eval.mjs && node tools/smoke-test.mjs && node tools/update-test.mjs && node tools/notification-test.mjs && node tools/dom-test.mjs",
     "verify:served": "node tools/verify-served.mjs"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "fake-indexeddb": "^6.2.2",
-    "jsdom": "^28.0.0"
+    "jsdom": "^28.0.0",
+    "vite": "^7.3.1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/share": "^8.0.3"
   }
 }

@@ -42,6 +42,7 @@ import { buildMarkdownExport, markdownStats } from './exportmd.js';
 import { listMicroHabits, changeMicroHabit, getTodayHabitSnapshot, loadMicroHabitState } from './microhabit.js';
 import { listLifeNavigation, changeLifeNavigation } from './life.js';
 import { saveDailyReview } from './dailyReview.js';
+import { scheduleChatNotification } from './notifications.js';
 import { endOfToday, dateStr, nowISO, daysUntil, download } from './util.js';
 
 /* ══════════════ 辅助 ══════════════ */
@@ -982,7 +983,7 @@ const IMPL = {
   async export_action_diagnostics({ limit = 300 }) {
     const data = await buildActionDiagnosticsExport({ limit: Math.min(300, Math.max(1, Number(limit) || 300)) });
     if (typeof document !== 'undefined' && typeof URL?.createObjectURL === 'function') {
-      download(`帕尼尼工具诊断-${dateStr()}.json`, JSON.stringify(data, null, 2), 'application/json');
+      await download(`帕尼尼工具诊断-${dateStr()}.json`, JSON.stringify(data, null, 2), 'application/json');
     }
     const actionCount = data.actions.length;
     const turnCount = data.turns.length;
@@ -990,6 +991,15 @@ const IMPL = {
       `已生成工具调用诊断文件：${turnCount} 个回合、${actionCount} 项操作。文件不包含原话、回复、参数值或用户/记录 ID。`,
       `export_action_diagnostics(${turnCount}回合/${actionCount}项)`,
       { toast: `已导出工具诊断（${turnCount} 回合）`, refresh: false },
+    );
+  },
+
+  async schedule_notification({ title, body = '', at }) {
+    const result = await scheduleChatNotification({ title, body, at });
+    return lock(
+      `已安排手机通知：${title}，时间为 ${result.at.toLocaleString()}。`,
+      `schedule_notification(${result.id})`,
+      { refresh: false },
     );
   },
 
@@ -1043,7 +1053,7 @@ const IMPL = {
 /* ══════════════ 导出与导航的辅助 ══════════════ */
 
 /** 面板 id。要与 panels.js 的 PANELS 保持一致；main.js 会忽略未知值，所以不会崩。 */
-const PANEL_IDS = ['today', 'learning', 'habits', 'life', 'records', 'tasks', 'checkin', 'points', 'plans', 'sops', 'reviews', 'profile'];
+const PANEL_IDS = ['today', 'learning', 'habits', 'life', 'records', 'tasks', 'checkin', 'points', 'plans', 'sops', 'reviews', 'profile', 'notifications'];
 const PANEL_IDS_LABEL = {
   today: '今日', learning: '学习', habits: '微习惯', life: '生活导航', records: '记录', tasks: '任务', checkin: '打卡',
   points: '积分', plans: '规划', sops: 'SOP', reviews: '复盘', profile: '档案',
@@ -1054,7 +1064,7 @@ async function buildMarkdownExportStats(includeAll) {
   const md = await buildMarkdownExport({ includeAll });
   const stats = markdownStats(md);
   if (typeof document !== 'undefined' && typeof URL?.createObjectURL === 'function') {
-    download(`帕尼尼监督记录-${dateStr()}.md`, md, 'text/markdown');
+    await download(`帕尼尼监督记录-${dateStr()}.md`, md, 'text/markdown');
   }
   return stats;
 }
@@ -1394,6 +1404,11 @@ const DEF = {
   export_action_diagnostics: ['导出匿名化的工具调用诊断 JSON，用于人工评测真实模型的工具选择和反馈。只在用户明确要求导出工具诊断/调用评测数据时调用；不包含原话、回复、参数值、会话或记录 ID。与 export_records 的个人数据迁移导出不同。', P({
     limit: N('最多导出多少条近期操作，默认 300', 1, 300),
   })],
+  schedule_notification: ['按用户明确要求安排一次手机本地通知。时间必须是未来的 ISO 8601 字符串，建议带时区；Android App 会在指定时间发送，即使应用关闭。', P({
+    title: S('通知标题'),
+    body: S('通知内容'),
+    at: S('未来时间，ISO 8601 格式并尽量带时区，例如 2026-10-24T19:30:00+08:00'),
+  }, ['title', 'at'])],
   open_panel: ['帮用户切换到他正在问的那个面板。例如他问积分就打开积分面板，问微习惯或生活导航就打开对应模块。**他只是随口提到某事、并不是想看那个面板时不要调。**', P({
     panel: ENUM('要打开的面板', PANEL_IDS),
   }, ['panel'])],
@@ -1427,6 +1442,7 @@ export const WRITE_TOOL_NAMES = new Set([
   'save_sop', 'save_memory', 'forget_memory', 'update_profile',
   'add_topic', 'grade_review', 'award_points', 'confirm_points',
   'upsert_reward', 'redeem_reward', 'manage_micro_habit', 'manage_life_navigation',
+  'schedule_notification',
 ]);
 export const getToolArgumentSchema = name => DEF_MAP[name]?.function?.parameters || null;
 

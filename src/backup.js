@@ -14,7 +14,7 @@ export const mirrorSupported = () =>
 
 export async function exportToDownload() {
   const data = await exportAll();
-  download(`学习助手备份-${dateStr()}.json`, prettyExport(data));
+  await download(`学习助手备份-${dateStr()}.json`, prettyExport(data));
   return data;
 }
 

@@ -153,6 +153,7 @@ const ICON_PATHS = {
   pencil:  '<path d="M4.2 19.8h3.9L19.6 8.3l-3.9-3.9L4.2 15.9z"/><path d="M14.6 5.5l3.9 3.9"/>',
   trash:   '<path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 14h11l1-14M9 7V4h6v3"/>',
   profile: '<circle cx="12" cy="8" r="3.8"/><path d="M4.6 21v-.9A5.4 5.4 0 0110 14.7h4A5.4 5.4 0 0119.4 20v.9"/>',
+  notifications: '<path d="M18 8a6 6 0 00-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
   'chevron-left':  '<path d="M14.5 6L8.5 12l6 6"/>',
   'chevron-right': '<path d="M9.5 6l6 6-6 6"/>',
   'arrow-down': '<path d="M12 4v16M5 13l7 7 7-7"/>',
@@ -445,6 +446,16 @@ export function createChatView(container) {
       mobileStream = false;
       setPinned(true);
       scrollToBottom();
+      const pendingArea = $('#pending-area');
+      if (pendingArea?.classList.contains('on')) {
+        // A long streamed reply can leave the card just below the viewport.
+        // Bring the actionable control into view after it has been rendered.
+        requestAnimationFrame(() => {
+          if (typeof pendingArea.scrollIntoView === 'function') {
+            pendingArea.scrollIntoView({ block: 'nearest' });
+          }
+        });
+      }
     },
 
     toolStart(name, args) {

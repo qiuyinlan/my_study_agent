@@ -13,6 +13,7 @@ import {
   ACTIVE_STATES, TASK_STATES, PRIORITIES, AREAS, profileCompletion,
   PROFILE_LABELS as DB_PROFILE_LABELS, notifyPrivateDataChanged,
 } from './db.js';
+import { isNativePlatform } from './native.js';
 import { dueTopics, masteryFromInterval } from './srs.js';
 import { getActiveTimer } from './timer.js';
 import { getLedger } from './ledger.js';
@@ -41,9 +42,7 @@ export function computeCapabilities() {
     pageOpen: true,             // 能生成这个 prompt 就说明页面开着
     timerAvailable: true,
     persistentMemory: true,
-    // 通知尚未实现 —— 保持 false，直到真的做出来。
-    // 这样模型永远不会承诺"我 20 分钟后提醒你"。
-    notificationsEnabled: false,
+    notificationsEnabled: isNativePlatform(),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
     localTime: `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}`,
   };

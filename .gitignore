@@ -5,6 +5,8 @@
 website/
 deploy-site/
 **/dist/
+capacitor-www/
+release/
 worker/.dev.vars
 worker/.wrangler/
 

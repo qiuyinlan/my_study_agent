@@ -17,7 +17,7 @@ import { PANELS, showPanel, getCurrentPanel, setPanelSub, refreshPanel, panelBad
 import { computeToday, todayCards } from './planner.js';
 import { runTurn } from './agent.js';
 import {
-  ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession, setTaskCompletion, addMessage,
+  db, ensureSession, sessionMessages, getMeta, getProfile, saveProfile, createSession, setTaskCompletion, addMessage,
   listTasks, deleteTask, upsertTask,
   cleanupOldCompletedTasks,
 } from './db.js';
@@ -35,6 +35,8 @@ import { upsertCheckin, setMedsEnabled } from './records.js';
 import { initDailyReviewSync } from './dailyReview.js';
 import { initTaskSync } from './taskSync.js';
 import { initPrivateSync } from './privateSync.js';
+import { listenForNotificationNavigation, syncDailyNotifications, syncTaskNotifications } from './notifications.js';
+import { checkForUpdatesDaily } from './updates.js';
 import { pruneMicroHabitHistory } from './microhabit.js';
 import { downloadMarkdownExport, buildMarkdownExport, markdownStats } from './exportmd.js';
 import { detectIntent, ALL_COMMANDS } from './commands.js';
@@ -54,6 +56,8 @@ let todayState = null;
 let profile = null;
 /** 上一次算好的卡片。switchPanel 复用它，避免在数据未就绪时用残缺对象重算而崩。 */
 let lastCards = [];
+/** 点通知进来时数据还没算完，就先记在这里，首轮刷新后补跳。 */
+let pendingNotificationPanel = null;
 
 /* ── 界面状态（折叠 + 宽度，记住上次的选择）── */
 const UI_KEY = 'msa.ui.v1';
@@ -189,7 +193,7 @@ function setupResizer(handleId, key) {
 
 /* ══════════════ 刷新 ══════════════ */
 
-async function refreshAll() {
+async function refreshAll({ flash = true } = {}) {
   try {
     profile = await getProfile();
     todayState = await computeToday();
@@ -207,7 +211,10 @@ async function refreshAll() {
     await refreshPanel(getCurrentPanel(), todayState, lastCards, plan, handlers);
     await refreshPending();
 
-    markUpdated();
+    // 真正的面板内容已经画上去了，骨架屏可以撤掉（后续调用是空操作）
+    $('#panel-skeleton')?.remove();
+
+    markUpdated({ flash });
   } catch (e) {
     console.error('[refreshAll]', e);
     toast(`刷新失败：${e.message}`, 'err');
@@ -215,11 +222,15 @@ async function refreshAll() {
 }
 
 /** 在面板标题旁显示"几点更新的"，并闪一下 —— 让用户看见刷新真的发生了 */
-function markUpdated() {
+function markUpdated({ flash = true } = {}) {
   const t = new Date();
   const p = n => String(n).padStart(2, '0');
   const el = $('#panel-updated');
   if (el) el.textContent = `${p(t.getHours())}:${p(t.getMinutes())} 更新`;
+
+  // 启动期间和后台同步触发的刷新不闪：那时用户还没做任何事，
+  // 三个同步各刷一次就会让面板连闪三下。
+  if (!flash) return;
 
   const panel = $('#panel');
   if (panel) {
@@ -273,6 +284,22 @@ async function switchPanel(id) {
     console.error('[switchPanel]', e);
   }
   $('#panel-body').scrollTop = 0;
+}
+
+/**
+ * 点手机通知进来后要落到哪儿。
+ * 任务提醒带 taskId 时顺手把那个任务打开，避免"点进来还得自己找"。
+ */
+async function openNotificationTarget(panel, extra = {}) {
+  const target = panel || 'tasks';
+  await switchPanel(target);
+  if (target !== 'tasks' || !extra?.taskId) return;
+  try {
+    const task = await db.tasks.get(extra.taskId);
+    if (task) await openTask(task.id, { onChanged: () => refreshAll() });
+  } catch (error) {
+    console.warn('[notification-open-task]', error);
+  }
 }
 
 async function refreshChat() {
@@ -641,6 +668,7 @@ const handlers = {
   onDaybookChanged: () => refreshAll(),
   onOpenTask: id => openTask(id, { onChanged: refreshAll, onKeyTask: refreshAll }),
   onNewTask: () => openTask(null, { onChanged: refreshAll }),
+  onRecordDone: date => openTask(null, { onChanged: refreshAll, mode: 'done', date }),
   onTaskDateChanged: () => renderChrome(),
   onToggleTask: async (id, completed) => {
     await setTaskCompletion(id, completed);
@@ -775,6 +803,37 @@ function autoGrow() {
   ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
 }
 
+/* ── 输入历史：像终端那样按 ↑ 翻之前说过的话 ──────────────────
+   存的是"你在这个输入框里真的敲进去过、并且发出去了"的话。
+   为什么不从 db.messages 里取：那段历史里混着「开始复盘」「聊聊我」这类
+   程序注入的长提示词，翻出来只会碍事。这里只记人手打的。 */
+
+const INPUT_HISTORY_KEY = 'msa.input-history.v1';
+const INPUT_HISTORY_MAX = 100;
+
+function loadInputHistory() {
+  try {
+    const list = JSON.parse(localStorage.getItem(INPUT_HISTORY_KEY) || '[]');
+    return Array.isArray(list) ? list.filter(t => typeof t === 'string' && t.trim()) : [];
+  } catch { return []; }
+}
+
+function pushInputHistory(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return;
+  const list = loadInputHistory();
+  if (list[list.length - 1] === value) return;   // 连着发同一句不重复记
+  list.push(value);
+  try {
+    localStorage.setItem(INPUT_HISTORY_KEY, JSON.stringify(list.slice(-INPUT_HISTORY_MAX)));
+  } catch { /* 无痕模式 */ }
+}
+
+/** 光标之前还有没有换行 —— 没有就说明在首行 */
+const onFirstLine = el => !el.value.slice(0, el.selectionStart).includes('\n');
+/** 光标之后还有没有换行 —— 没有就说明在末行 */
+const onLastLine = el => !el.value.slice(el.selectionEnd).includes('\n');
+
 function wireComposer() {
   const form = $('#composer');
   const input = $('#input');
@@ -784,11 +843,63 @@ function wireComposer() {
   const updateKeyboardHint = () => {
     input.title = window.innerWidth <= 840
       ? '换行键输入新行，点击发送按钮发送'
-      : 'Enter 发送，Ctrl+Enter 换行';
+      : 'Enter 发送，Ctrl+Enter 换行 · ↑/↓ 翻历史输入';
   };
   updateKeyboardHint();
   window.addEventListener('resize', updateKeyboardHint);
   input.addEventListener('input', autoGrow);
+
+  /* ── ↑ / ↓ 翻历史输入 ──
+     规则刻意跟终端一致：
+       · 只有光标在首行时按 ↑ 才进历史，否则放行让你在长文本里正常上移光标
+       · 进历史前先把没写完的草稿存起来，↓ 走到最新一条之后再把草稿还给你
+       · 中文输入法组词中（isComposing）一律不抢按键
+       · 加着 Shift/Ctrl/Alt 也不抢（Shift+↑ 是选中文本） */
+  let historyCursor = -1;   // -1 = 不在历史里，正在写草稿
+  let historyDraft = '';
+
+  const setInputValue = value => {
+    input.value = value;
+    input.setSelectionRange(value.length, value.length);
+    autoGrow();
+  };
+
+  input.addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+
+    const history = loadInputHistory();
+    if (!history.length) return;
+
+    if (e.key === 'ArrowUp') {
+      const browsing = historyCursor !== -1;
+      // 光标必须在首行；没在浏览历史时还要求它就在开头，
+      // 否则多行文本里按 ↑ 应该只是正常上移光标。
+      if (!onFirstLine(input)) return;
+      if (!browsing && input.selectionStart !== 0) return;
+      if (!browsing) historyDraft = input.value;
+      const next = browsing ? Math.max(0, historyCursor - 1) : history.length - 1;
+      if (next === historyCursor) { e.preventDefault(); return; }   // 已经是最旧的一条
+      historyCursor = next;
+      e.preventDefault();
+      setInputValue(history[historyCursor]);
+      return;
+    }
+
+    // ↓：只有正在浏览历史时才接管
+    if (historyCursor === -1) return;
+    if (!onLastLine(input)) return;      // 先把光标往下走完，再退出历史
+    e.preventDefault();
+    if (historyCursor + 1 >= history.length) {
+      historyCursor = -1;
+      setInputValue(historyDraft);
+      return;
+    }
+    historyCursor += 1;
+    setInputValue(history[historyCursor]);
+  });
+
   input.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
 
@@ -807,6 +918,9 @@ function wireComposer() {
     e.preventDefault();
     if (busy) { controller?.abort(); return; }
     const text = input.value;
+    pushInputHistory(text);
+    historyCursor = -1;
+    historyDraft = '';
     input.value = '';
     autoGrow();
     send(text);
@@ -915,16 +1029,34 @@ window.addEventListener('resize', () => {
 
 async function boot() {
   loadUiState();
-  await cleanupOldCompletedTasks();
-  pruneMicroHabitHistory();
   // 每次打开应用先进入任务页；用户仍可从导航进入 AI 对话。
   showPanel('tasks');
   workspaceMode = 'content';
+  // 布局状态必须赶在第一个 await 之前落地。
+  // cleanupOldCompletedTasks() 是一次真实的 IndexedDB 往返，放在前面会让首帧先画出
+  // "导航展开 + 空面板"的骨架，等它回来再跳成真正的布局 —— 那一下跳变就是"闪一帧"。
   applyUiState();
   wireComposer();
+  // 点通知进来时可能还没算完数据（todayState 为 null）：先记下来，
+  // 等首轮 refreshAll 之后再切，否则切过去是个空面板。
+  listenForNotificationNavigation((panel, extra) => {
+    if (!todayState) {
+      pendingNotificationPanel = { panel, taskId: extra?.taskId || '' };
+      return;
+    }
+    void openNotificationTarget(panel, extra);
+  });
+  window.addEventListener('msa:tasks-changed', () => {
+    void syncTaskNotifications().catch(error => console.warn('[task-notifications]', error));
+  });
   wireTopbar();
   setBusy(false);
   setupResizer('#resize-panel', 'panel');
+
+  await cleanupOldCompletedTasks();
+  pruneMicroHabitHistory();
+  void syncTaskNotifications().catch(error => console.warn('[task-notifications-init]', error));
+  void syncDailyNotifications().catch(error => console.warn('[daily-notifications-init]', error));
 
   profile = await getProfile();
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
@@ -933,18 +1065,29 @@ async function boot() {
   $('#brand-name').textContent = profile.supervisorName || '帕尼尼';
 
   await ensureSession();
-  await refreshAll();
+  await refreshAll({ flash: false });
   await refreshChat();
+  // 数据到位了，补上点通知时没跳成的目标页。
+  if (pendingNotificationPanel) {
+    const target = pendingNotificationPanel;
+    pendingNotificationPanel = null;
+    await openNotificationTarget(target.panel, { taskId: target.taskId });
+  }
+  void checkForUpdatesDaily(update => {
+    toast(`发现 My Study Agent v${update.latestVersion}，更新正在下载或等待 Wi-Fi`, 'ok');
+  }).catch(error => console.warn('[app-update-check]', error));
 
   // Render browser data first; account checks and cloud merges continue in the background.
-  void initDailyReviewSync(() => { void refreshAll(); })
-    .then(() => refreshAll())
+  // 三个同步各自都会触一次刷新，直接刷就是连闪三次；合并成一次安静的尾随刷新。
+  const refreshAfterSync = debounce(() => { void refreshAll({ flash: false }); }, 400);
+  void initDailyReviewSync(() => refreshAfterSync())
+    .then(() => refreshAfterSync())
     .catch(error => console.warn('[daily-review-sync]', error));
-  void initTaskSync(() => { void refreshAll(); })
+  void initTaskSync(() => refreshAfterSync())
     .catch(error => console.warn('[task-sync-init]', error))
-    .finally(() => { void refreshAll(); });
-  void initPrivateSync(() => { void refreshAll(); })
-    .then(() => refreshAll())
+    .finally(() => { refreshAfterSync(); });
+  void initPrivateSync(() => refreshAfterSync())
+    .then(() => refreshAfterSync())
     .catch(error => console.warn('[private-sync-init]', error));
 
   // 镜像权限：浏览器每次重开页面都会重置

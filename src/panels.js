@@ -17,6 +17,11 @@ import { estimationStats, listTimeEntries } from './timer.js';
 import * as daylog from './daylog.js';
 import { renderMicroHabit, getHabitSnapshot } from './microhabit.js';
 import { renderDailyReview } from './dailyReview.js';
+import {
+  DAILY_LABELS, DAILY_SLOTS, getExactAlarmPermission, getNotificationPermission, getNotificationSettings,
+  isNativeNotifications, notificationCounts, requestExactAlarmPermission, requestNotificationPermission,
+  saveNotificationSettings, sendTestNotification,
+} from './notifications.js';
 import { renderLifeNav } from './life.js';
 import {
   endOfToday, fmtDateTime, daysUntil, humanDue, dateStr,
@@ -31,6 +36,7 @@ export const PANELS = [
   { id: 'learning', title: '学习' },
   { id: 'records', title: '日志' },
   { id: 'life', title: '生活导航' },
+  { id: 'notifications', title: '通知' },
 ];
 
 const PANEL_META = [
@@ -367,7 +373,7 @@ function taskItemHtml(t) {
   if (t.actualStart) times.push(`开始 ${fmtDateTime(t.actualStart)}`);
 
   return `<div class="task-item ${t.state === 'DONE' ? 'done' : ''}" data-task="${esc(t.id)}">
-    <div class="t-head"><button type="button" class="task-check ${t.state === 'DONE' ? 'checked' : ''}" data-task-check="${esc(t.id)}" aria-label="${t.state === 'DONE' ? '标记未完成' : '标记完成'}：${esc(t.title)}" aria-pressed="${t.state === 'DONE'}">${t.state === 'DONE' ? icon('check') : ''}</button><span class="t-name">${esc(t.title)}</span>${badges.join('')}</div>
+    <div class="t-head"><button type="button" class="task-check ${t.state === 'DONE' ? 'checked' : ''}" data-task-check="${esc(t.id)}" aria-label="${t.state === 'DONE' ? '标记未完成' : '标记完成'}：${esc(t.title)}" title="${t.state === 'DONE' ? '取消完成' : '点击标记完成'}" aria-pressed="${t.state === 'DONE'}">${t.state === 'DONE' ? icon('check') : ''}</button><span class="t-name">${esc(t.title)}</span>${badges.join('')}</div>
     ${meta.length ? `<div class="t-meta">${meta.join('　·　')}</div>` : ''}
     ${times.length ? `<div class="t-meta">${times.join('　·　')}</div>` : ''}
     ${t.progress ? `<div class="progress"><i style="width:${Math.min(100, t.progress)}%"></i></div>` : ''}
@@ -403,7 +409,7 @@ export function renderTasks(s, h) {
   const week = Array.from({ length: 7 }, (_, index) => addDays(selectedTaskDate, index - 2));
   const shortDays = ['日', '一', '二', '三', '四', '五', '六'];
   const dateCount = date => s.tasks.filter(task => taskDateForStrip(task) === date).length;
-  out.push(`<div class="task-date-head"><strong>任务日期</strong><label class="task-calendar" title="选择具体日期">${icon('today')}<input type="date" value="${selectedTaskDate}" data-task-date-picker aria-label="选择任务日期"></label></div>`);
+  out.push(`<div class="task-date-head"><strong>任务日期</strong><div class="task-date-actions"><button type="button" class="task-record-done" data-record-done>＋ 记录完成</button><label class="task-calendar" title="选择具体日期">${icon('today')}<input type="date" value="${selectedTaskDate}" data-task-date-picker aria-label="选择任务日期"></label></div></div>`);
   out.push(`<nav class="task-date-strip" aria-label="任务日期">${week.map(date => {
     const d = new Date(`${date}T00:00:00`);
     const today = date === dateStr();
@@ -418,8 +424,10 @@ export function renderTasks(s, h) {
       if (!dateB) return -1;
       return dateB.localeCompare(dateA);
     });
+  const openTasks = visibleTasks.filter(task => task.state !== 'DONE');
+  const doneTasks = visibleTasks.filter(task => task.state === 'DONE');
   const renderTaskGroup = (category, title) => {
-    const tasks = visibleTasks.filter(task => taskCategory(task) === category);
+    const tasks = openTasks.filter(task => taskCategory(task) === category);
     out.push(`<section class="task-category"><div class="group-head">${title}</div>`);
     out.push(tasks.length
       ? `<div class="list task-list-${category}">${tasks.map(task => taskItemHtml(task)).join('')}</div>`
@@ -428,6 +436,11 @@ export function renderTasks(s, h) {
   };
   renderTaskGroup('important', '主要任务');
   renderTaskGroup('chore', '杂事');
+  out.push(`<section class="task-category task-done-list"><div class="group-head">已完成 <span class="n">${doneTasks.length}</span></div>`);
+  out.push(doneTasks.length
+    ? `<div class="list">${doneTasks.map(task => taskItemHtml(task)).join('')}</div>`
+    : '<div class="empty">所选日期还没有完成记录</div>');
+  out.push('</section>');
 
   /* 知识点放在任务面板底部，作为学习模块的一部分 */
   if (s.topics.length) {
@@ -467,6 +480,7 @@ export function renderTasks(s, h) {
     date: selectedTaskDate,
   });
   el.querySelector('[data-new-task]')?.addEventListener('click', () => h.onNewTask?.());
+  el.querySelector('[data-record-done]')?.addEventListener('click', () => h.onRecordDone?.(selectedTaskDate));
   el.querySelectorAll('[data-task-date]').forEach(button => button.addEventListener('click', () => {
     selectedTaskDate = button.dataset.taskDate;
     renderTasks(s, h);
@@ -891,6 +905,156 @@ const PROFILE_ROWS = [
   ['otherNeeds', '其他需求'],
 ];
 
+export async function renderNotifications() {
+  const el = $('#view-notifications');
+  if (!el) return;
+  const settings = await getNotificationSettings();
+  const permission = await getNotificationPermission();
+  const exactAlarm = await getExactAlarmPermission();
+  const counts = await notificationCounts();
+  const native = isNativeNotifications();
+
+  const permissionText = !native
+    ? '网页可以设置时间，但只有 Android App 能在后台发送通知'
+    : permission === 'granted'
+      ? '系统通知权限已允许'
+      : permission === 'denied'
+        ? '系统通知权限被拒绝，去系统设置里允许通知'
+        : '首次打开开关时会请求系统通知权限';
+  const statusLine = !native
+    ? '这些设置在网页上只会被保存；提醒要装 Android App 才会真的发出来。'
+    : `待发送提醒 ${counts.pending} 条${exactAlarm === 'granted' ? ' · 精确提醒已允许' : ' · 精确提醒未允许（可能晚几分钟）'}${counts.error ? ` · ${counts.error}` : ''}`;
+
+  const slot = key => `<label class="notification-slot"><span><input type="checkbox" data-notification-enabled="${key}" ${settings[key].enabled ? 'checked' : ''}><strong>${DAILY_LABELS[key]}</strong></span><input type="time" data-notification-time="${key}" value="${esc(settings[key].time)}" aria-label="${DAILY_LABELS[key]}时间" ${settings.enabled ? '' : 'disabled'}></label>`;
+
+  el.innerHTML = `<div class="notification-settings">
+    <section class="notification-section"><h3>复盘提醒</h3>
+      <label class="notification-master"><input type="checkbox" id="notifications-enabled" ${settings.enabled ? 'checked' : ''}><span><strong>启用手机通知</strong><small id="notification-permission-status">${permissionText}</small></span></label>
+      <div class="notification-times">${DAILY_SLOTS.map(slot).join('')}</div>
+    </section>
+    <section class="notification-section"><h3>任务提醒</h3>
+      <label class="notification-master"><input type="checkbox" id="task-notifications-enabled" ${settings.taskNotifications ? 'checked' : ''}><span><strong>按计划开始时间提醒</strong><small>有具体执行时间的未完成任务会在开始时提醒；修改或完成任务后自动更新。</small></span></label>
+    </section>
+    <section class="notification-section"><h3>检查</h3>
+      <div class="notification-actions" style="justify-content:flex-start;gap:10px;padding:0;flex-wrap:wrap">
+        <button type="button" class="ghost" id="btn-test-notification">发送测试提醒</button>
+        <button type="button" class="ghost" id="btn-exact-alarm" ${exactAlarm === 'granted' ? 'hidden' : ''}>让提醒更准时</button>
+      </div>
+      <div class="hint" id="notification-status-line" aria-live="polite" style="margin-top:10px">${statusLine}</div>
+    </section>
+    <div class="notification-actions"><button class="primary" id="save-notification-settings">保存设置</button></div>
+  </div>`;
+
+  const setStatus = text => {
+    const node = $('#notification-status-line', el);
+    if (node) node.textContent = text;
+  };
+  const setPermissionStatus = text => {
+    const node = $('#notification-permission-status', el);
+    if (node) node.textContent = text;
+  };
+  const toggleTimes = enabled => {
+    el.querySelectorAll('[data-notification-time]').forEach(input => { input.disabled = !enabled; });
+  };
+
+  /* 打开任一开关都立刻要权限：点完马上有系统弹窗，而不是点保存才有反应。 */
+  const requestPermissionOnEnable = async event => {
+    const checkbox = event.currentTarget;
+    if (!checkbox.checked) return;
+    if (!native) {
+      checkbox.checked = false;
+      if (checkbox.id === 'notifications-enabled') toggleTimes(false);
+      toast('手机系统通知需要在 Android App 中启用。', 'err');
+      return;
+    }
+    checkbox.disabled = true;
+    setStatus('正在请求系统通知权限…');
+    try {
+      await requestNotificationPermission();
+      setPermissionStatus('系统通知权限已允许');
+      setStatus('权限已开启，记得点「保存设置」让排期生效。');
+      toast('通知权限已开启，请保存设置。', 'ok');
+    } catch (error) {
+      checkbox.checked = false;
+      if (checkbox.id === 'notifications-enabled') toggleTimes(false);
+      setStatus(error.message || '无法开启通知权限');
+      toast(error.message || '无法开启通知权限', 'err');
+    } finally {
+      checkbox.disabled = false;
+    }
+  };
+
+  $('#notifications-enabled', el).addEventListener('change', event => {
+    toggleTimes(event.target.checked);
+    void requestPermissionOnEnable(event);
+  });
+  $('#task-notifications-enabled', el).addEventListener('change', event => {
+    void requestPermissionOnEnable(event);
+  });
+  el.querySelectorAll('[data-notification-enabled]').forEach(checkbox => {
+    checkbox.addEventListener('change', event => { void requestPermissionOnEnable(event); });
+  });
+
+  $('#btn-exact-alarm', el).addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    setStatus('正在打开系统的「闹钟和提醒」设置…');
+    try {
+      const result = await requestExactAlarmPermission();
+      button.hidden = result === 'granted';
+      setStatus(result === 'granted' ? '精确提醒已允许。' : '「闹钟和提醒」仍未允许，提醒可能会晚几分钟。');
+      toast(result === 'granted' ? '精确提醒已允许' : '「闹钟和提醒」未允许', result === 'granted' ? 'ok' : 'warn');
+    } catch (error) {
+      setStatus(error.message || '无法打开「闹钟和提醒」设置');
+      toast(error.message || '无法打开「闹钟和提醒」设置', 'err');
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $('#btn-test-notification', el).addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    setStatus('正在安排一条 5 秒后的测试提醒…');
+    try {
+      const at = await sendTestNotification();
+      setStatus(`测试提醒已安排：${at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} 到达。锁屏或退出应用都能收到；点它应该回到复盘页。`);
+      toast('5 秒后会收到一条测试提醒', 'ok');
+    } catch (error) {
+      setStatus(error.message || '测试提醒发送失败');
+      toast(error.message || '测试提醒发送失败', 'err');
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  $('#save-notification-settings', el).addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    setStatus('正在保存并重排提醒…');
+    try {
+      const value = {
+        enabled: $('#notifications-enabled', el).checked,
+        taskNotifications: $('#task-notifications-enabled', el).checked,
+      };
+      for (const key of DAILY_SLOTS) {
+        value[key] = {
+          enabled: el.querySelector('[data-notification-enabled="' + key + '"]').checked,
+          time: el.querySelector('[data-notification-time="' + key + '"]').value,
+        };
+      }
+      const saved = await saveNotificationSettings(value);
+      toast(saved.scheduled ? `通知设置已保存，已排 ${saved.scheduled.daily} 条复盘提醒、${saved.scheduled.tasks} 条任务提醒` : '通知设置已保存');
+      await renderNotifications();
+    } catch (error) {
+      setStatus(error.message || '通知设置保存失败');
+      toast(error.message || '通知设置保存失败', 'err');
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
 export async function renderProfile(s, h) {
   const el = $('#view-profile');
   if (!el) return;
@@ -979,6 +1143,7 @@ export async function refreshPanel(panelId, s, cards, plan, h) {
     case 'sops':    await renderSops(s, h); break;
     case 'reviews': await renderReviews(s, h); break;
     case 'profile': await renderProfile(s, h); break;
+    case 'notifications': await renderNotifications(); break;
     default: break;
   }
 }

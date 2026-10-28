@@ -14,7 +14,18 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="nav-collapsed">
+<script>
+  /* 首帧之前先把折叠状态摆正。
+     main.js 的 loadUiState() 读的是同一个 key，并且强制 navCollapsed=true、
+     topbarCollapsed=false —— 这里只是让第一帧就画出最终布局，
+     而不是先画成"导航展开、面板满宽"，等模块加载完再跳一下。 */
+  try {
+    const s = JSON.parse(localStorage.getItem('msa.ui.v1') || '{}');
+    if (s.panelCollapsed) document.body.classList.add('panel-collapsed');
+    if (s.panelWidth) document.documentElement.style.setProperty('--panel-w', `${Math.round(s.panelWidth)}px`);
+  } catch { /* 用默认值 */ }
+</script>
 
 <div class="app">
 
@@ -52,6 +63,17 @@
         <button class="icon-btn" id="btn-collapse-panel" title="收起面板"></button>
       </div>
       <div class="panel-body" id="panel-body">
+        <!-- 骨架屏：第一帧就摆出"内容正在来"的结构，
+             免得空面板只剩一片渐变底色，等卡片填进来时整屏颜色跳一下。
+             首次 refreshAll() 画完真实内容后由 main.js 移除。 -->
+        <div class="panel-skeleton" id="panel-skeleton" aria-hidden="true">
+          <div class="sk sk-title"></div>
+          <div class="sk sk-card"></div>
+          <div class="sk sk-card"></div>
+          <div class="sk sk-card tall"></div>
+          <div class="sk sk-line"></div>
+          <div class="sk sk-card"></div>
+        </div>
         <div class="panel-view" id="view-today"></div>
         <div class="panel-view" id="view-learning"></div>
         <div class="panel-view" id="view-habits"></div>
@@ -64,6 +86,7 @@
         <div class="panel-view" id="view-sops"></div>
         <div class="panel-view" id="view-reviews"></div>
         <div class="panel-view" id="view-profile"></div>
+        <div class="panel-view" id="view-notifications"></div>
       </div>
       <div class="resizer" id="resize-panel" title="拖动调整宽度"></div>
     </section>
@@ -176,6 +199,17 @@
       <button type="button" class="ghost" id="btn-settings-export">导出 Markdown</button>
       <button type="button" class="ghost" id="btn-settings-backup">备份与恢复</button>
     </div>
+
+    <section class="app-update-settings" id="app-update-settings" hidden>
+      <div class="section-title">应用更新</div>
+      <div class="hint" id="app-update-status" aria-live="polite">正在读取更新状态…</div>
+      <div class="dlg-actions">
+        <button type="button" class="ghost" id="btn-check-app-update">立即检查</button>
+        <button type="button" class="ghost" id="btn-download-app-update" hidden>下载更新</button>
+        <button type="button" class="primary" id="btn-install-app-update" hidden>安装更新</button>
+      </div>
+      <small class="hint">应用每天自动检查更新，并仅在 Wi-Fi 下后台下载。安装由 Android 确认；不会静默安装。</small>
+    </section>
 
     <div class="section-title">出了问题？跑一次诊断</div>
     <div class="hint" style="margin-bottom:8px">

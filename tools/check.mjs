@@ -94,6 +94,29 @@ for (const file of [...srcFiles, ...toolFiles]) {
   }
 }
 
+/* ── 1b) src/ 下不许出现静态裸模块导入 ── */
+// 网站是零构建的：index.html 直接 <script type="module" src="src/main.js">，
+// 浏览器按 URL 解析 import。裸模块名（@capacitor/core 之类）只有打包器能解析，
+// 一旦写进 src/，网站加载期就报 Failed to resolve module specifier，整页白屏。
+// 原生插件请在函数里用动态 import（见 src/native.js），网站端不会执行到那里。
+const STATIC_IMPORT_SPEC_RE = /\bimport\s+(?:[\s\S]*?\s+from\s+)?['"]([^'"]+)['"]/g;
+const STATIC_EXPORT_SPEC_RE = /\bexport\s+[\s\S]*?\s+from\s+['"]([^'"]+)['"]/g;
+// 注释里经常会写「不要这样写：import ... from '@capacitor/core'」，先去掉再扫。
+const stripComments = text => text
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .replace(/^[ \t]*\/\/.*$/gm, '');
+
+for (const file of srcFiles) {
+  const text = stripComments(await readFile(file, 'utf8'));
+  for (const re of [STATIC_IMPORT_SPEC_RE, STATIC_EXPORT_SPEC_RE]) {
+    for (const m of text.matchAll(re)) {
+      const spec = m[1];
+      if (spec.startsWith('.') || spec.startsWith('/')) continue;
+      problems.push(`${rel(file)}: 静态导入了裸模块 "${spec}" —— 浏览器解析不了，网站会白屏。改成函数内 await import(...)`);
+    }
+  }
+}
+
 /* ── 2) DOM id 一致性 ── */
 const html = await readFile(resolve(ROOT, 'index.html'), 'utf8');
 const htmlIds = new Set([...html.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]));

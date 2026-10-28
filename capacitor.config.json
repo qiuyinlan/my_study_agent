@@ -1,0 +1,8 @@
+{
+  "appId": "com.mystudyagent.app",
+  "appName": "My Study Agent",
+  "webDir": "capacitor-www",
+  "server": {
+    "androidScheme": "https"
+  }
+}
