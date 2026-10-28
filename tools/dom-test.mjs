@@ -953,6 +953,16 @@ check('通知页展示早中晚时段和任务计划提醒', ['morning', 'noon',
 /* 通知页：网页端点了必须"有反应"。静默什么都不发生，就是用户说的"点击没反应"。 */
 const fillToast = () => { const node = $('#toasts'); if (node) node.textContent = ''; };
 fillToast();
+check('时间输入不需要先开总开关就能编辑',
+  ['morning', 'noon', 'evening'].every(key => !$('#view-notifications [data-notification-time="' + key + '"]').disabled),
+  '时间框不可编辑时，用户会以为"点击没反应"');
+check('网页版不显示只在 App 里才有意义的申请权限按钮',
+  $('#btn-request-permission')?.hidden === true,
+  '网页版若显示这个按钮，点了也只能得到一句解释');
+check('网页版诊断行说明了外壳是网页',
+  ($('#notification-diagnostic')?.textContent || '').includes('网页版'),
+  $('#notification-diagnostic')?.textContent);
+
 const morningSlot = $('#view-notifications [data-notification-enabled="morning"]');
 morningSlot.checked = true;
 morningSlot.dispatchEvent(new window.Event('change', { bubbles: true }));
@@ -960,6 +970,9 @@ await wait(120);
 check('网页端点早间复盘勾选框会被拒绝并说明原因',
   morningSlot.checked === false && ($('#toasts')?.textContent || '').includes('Android App'),
   `checked=${morningSlot.checked} toast=${$('#toasts')?.textContent}`);
+check('网页端拒绝原因也写在开关下面的小字里，不只靠一闪而过的 toast',
+  ($('#notification-permission-status')?.textContent || '').includes('Android App'),
+  $('#notification-permission-status')?.textContent);
 
 check('通知页提供状态行、测试提醒和精确定时入口',
   Boolean($('#notification-status-line')) && Boolean($('#btn-test-notification')) && Boolean($('#btn-exact-alarm')),

@@ -19,7 +19,8 @@ import { renderMicroHabit, getHabitSnapshot } from './microhabit.js';
 import { renderDailyReview } from './dailyReview.js';
 import {
   DAILY_LABELS, DAILY_SLOTS, getExactAlarmPermission, getNotificationPermission, getNotificationSettings,
-  isNativeNotifications, notificationCounts, requestExactAlarmPermission, requestNotificationPermission,
+  isNativeNotifications, notificationCounts, notificationDiagnostics, openNotificationSettings,
+  requestExactAlarmPermission, requestNotificationPermission,
   saveNotificationSettings, sendTestNotification,
 } from './notifications.js';
 import { renderLifeNav } from './life.js';
@@ -913,6 +914,17 @@ const PERMISSION_TEXT = {
   unknown: '首次打开开关时会请求系统通知权限',
 };
 
+/**
+ * 这一页出过的问题集中在"点了没反应"上，所以三条硬规矩：
+ *
+ *   1. 时间输入永远可编辑。早先要先把「启用手机通知」打开才能改时间，
+ *      可网页端那个开关必然弹回、Android 端权限没给时也会弹回 ——
+ *      结果就是时间框永远点不动，用户只会说"点了没反应"。
+ *   2. 任何失败都要写在**用户正在看的那一行**（开关下面的小字），
+ *      而不是只丢一个几秒后消失的 toast。
+ *   3. 申请权限要有独立按钮。开关负责"启用"，按钮负责"要权限"，
+ *      并且在被系统永久拒绝时给出「打开系统通知设置」的出口。
+ */
 export async function renderNotifications() {
   const el = $('#view-notifications');
   if (!el) return;
@@ -929,11 +941,15 @@ export async function renderNotifications() {
   }
   const native = isNativeNotifications();
 
-  const slot = key => `<label class="notification-slot"><span><input type="checkbox" data-notification-enabled="${key}" ${settings[key].enabled ? 'checked' : ''}><strong>${DAILY_LABELS[key]}</strong></span><input type="time" data-notification-time="${key}" value="${esc(settings[key].time)}" aria-label="${DAILY_LABELS[key]}时间" ${settings.enabled ? '' : 'disabled'}></label>`;
+  const slot = key => `<label class="notification-slot"><span><input type="checkbox" data-notification-enabled="${key}" ${settings[key].enabled ? 'checked' : ''}><strong>${DAILY_LABELS[key]}</strong></span><input type="time" data-notification-time="${key}" value="${esc(settings[key].time)}" aria-label="${DAILY_LABELS[key]}时间"></label>`;
 
   el.innerHTML = `<div class="notification-settings">
     <section class="notification-section"><h3>复盘提醒</h3>
       <label class="notification-master"><input type="checkbox" id="notifications-enabled" ${settings.enabled ? 'checked' : ''}><span><strong>启用手机通知</strong><small id="notification-permission-status">${native ? '正在读取通知权限…' : PERMISSION_TEXT.unsupported}</small></span></label>
+      <div class="notification-actions" style="justify-content:flex-start;gap:10px;padding:2px 0 0;flex-wrap:wrap">
+        <button type="button" class="ghost" id="btn-request-permission"${native ? '' : ' hidden'}>申请通知权限</button>
+        <button type="button" class="ghost" id="btn-open-notification-settings" hidden>打开系统通知设置</button>
+      </div>
       <div class="notification-times">${DAILY_SLOTS.map(slot).join('')}</div>
     </section>
     <section class="notification-section"><h3>任务提醒</h3>
@@ -945,6 +961,7 @@ export async function renderNotifications() {
         <button type="button" class="ghost" id="btn-exact-alarm" hidden>让提醒更准时</button>
       </div>
       <div class="hint" id="notification-status-line" aria-live="polite" style="margin-top:10px">${native ? '正在读取待发送提醒…' : '这些设置在网页上只会被保存；提醒要装 Android App 才会真的发出来。'}</div>
+      <div class="hint" id="notification-diagnostic" style="margin-top:6px;opacity:.75">${native ? '正在读取设备状态…' : '外壳：网页版（不是 Android App）'}</div>
     </section>
     <div class="notification-actions"><button class="primary" id="save-notification-settings">保存设置</button></div>
   </div>`;
@@ -957,60 +974,116 @@ export async function renderNotifications() {
     const node = $('#notification-permission-status', el);
     if (node) node.textContent = text;
   };
+  const setDiagnostic = text => {
+    const node = $('#notification-diagnostic', el);
+    if (node) node.textContent = text;
+  };
+  const showSettingsEntry = show => {
+    const button = $('#btn-open-notification-settings', el);
+    if (button) button.hidden = !show;
+  };
 
-  /* 界面已经在屏幕上了，再去问原生补状态。任何一步失败或超时都只影响这行字。 */
+  /** 失败的三处都写一遍：开关下的小字、状态行、toast。任一处被看见都算数。 */
+  const reportProblem = message => {
+    setPermissionStatus(message);
+    setStatus(message);
+    showSettingsEntry(true);
+    toast(message, 'err');
+  };
+
+  const enableWithPermission = async () => {
+    if (!native) {
+      const message = '手机系统通知只能在 Android App 里开启；网页可以先把时间保存下来。';
+      setPermissionStatus(message);
+      setStatus('这些设置在网页上只会被保存；提醒要装 Android App 才会真的发出来。');
+      toast(message, 'err');
+      return false;
+    }
+    try {
+      await requestNotificationPermission();
+      setPermissionStatus(PERMISSION_TEXT.granted);
+      showSettingsEntry(false);
+      return true;
+    } catch (error) {
+      reportProblem(error.message || '无法开启通知权限');
+      return false;
+    }
+  };
+
+  /* 界面已经在屏幕上了，再去问原生补状态。任何一步失败或超时都只影响这两行字。 */
   if (native) {
     void (async () => {
-      const [permission, exactAlarm, counts] = await Promise.all([
-        getNotificationPermission(),
-        getExactAlarmPermission(),
-        notificationCounts(),
-      ]);
-      if (!el.isConnected) return;
-      setPermissionStatus(PERMISSION_TEXT[permission] || PERMISSION_TEXT.unknown);
-      const exact = $('#btn-exact-alarm', el);
-      if (exact) exact.hidden = exactAlarm === 'granted';
-      setStatus(`待发送提醒 ${counts.pending} 条 · ${exactAlarm === 'granted' ? '精确提醒已允许' : '精确提醒未允许（可能晚几分钟）'}${counts.error ? ` · ${counts.error}` : ''}`);
+      try {
+        const [permission, exactAlarm, counts] = await Promise.all([
+          getNotificationPermission(),
+          getExactAlarmPermission(),
+          notificationCounts(),
+        ]);
+        if (!el.isConnected) return;
+        setPermissionStatus(PERMISSION_TEXT[permission] || PERMISSION_TEXT.unknown);
+        setStatus(`待发送提醒 ${counts.pending} 条 · ${exactAlarm === 'granted' ? '精确提醒已允许' : '精确提醒未允许（可能晚几分钟）'}${counts.error ? ` · ${counts.error}` : ''}`);
+        if (permission === 'denied') showSettingsEntry(true);
+        const exact = $('#btn-exact-alarm', el);
+        if (exact) exact.hidden = exactAlarm === 'granted';
+
+        const diagnostic = await notificationDiagnostics();
+        if (!el.isConnected) return;
+        const exactText = diagnostic.exactAlarm === 'granted' ? '已允许' : diagnostic.exactAlarm === 'n/a' ? '不适用' : '未知';
+        const permissionText = diagnostic.permission === 'granted' ? '已允许' : diagnostic.permission === 'denied' ? '被拒绝' : diagnostic.permission;
+        setDiagnostic(`外壳 ${diagnostic.platform} · 插件 ${diagnostic.pluginAvailable ? '可用' : '不可用'} · 权限 ${permissionText} · 精确提醒 ${exactText}`);
+      } catch (error) {
+        if (!el.isConnected) return;
+        setDiagnostic(`读取设备状态失败：${error?.message || error}`);
+      }
     })();
   }
-  const toggleTimes = enabled => {
-    el.querySelectorAll('[data-notification-time]').forEach(input => { input.disabled = !enabled; });
-  };
 
   /* 打开任一开关都立刻要权限：点完马上有系统弹窗，而不是点保存才有反应。 */
   const requestPermissionOnEnable = async event => {
     const checkbox = event.currentTarget;
     if (!checkbox.checked) return;
-    if (!native) {
-      checkbox.checked = false;
-      if (checkbox.id === 'notifications-enabled') toggleTimes(false);
-      toast('手机系统通知需要在 Android App 中启用。', 'err');
-      return;
-    }
-    checkbox.disabled = true;
-    setStatus('正在请求系统通知权限…');
-    try {
-      await requestNotificationPermission();
-      setPermissionStatus('系统通知权限已允许');
+    const ok = await enableWithPermission();
+    if (ok) {
       setStatus('权限已开启，记得点「保存设置」让排期生效。');
       toast('通知权限已开启，请保存设置。', 'ok');
-    } catch (error) {
+    } else {
       checkbox.checked = false;
-      if (checkbox.id === 'notifications-enabled') toggleTimes(false);
-      setStatus(error.message || '无法开启通知权限');
-      toast(error.message || '无法开启通知权限', 'err');
-    } finally {
-      checkbox.disabled = false;
     }
   };
 
-  $('#notifications-enabled', el).addEventListener('change', event => {
-    toggleTimes(event.target.checked);
-    void requestPermissionOnEnable(event);
+  $('#btn-request-permission', el)?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    setStatus('正在请求系统通知权限…');
+    try {
+      const ok = await enableWithPermission();
+      if (ok) {
+        const master = $('#notifications-enabled', el);
+        if (master && !master.checked) master.checked = true;
+        setStatus('权限已开启，记得点「保存设置」让排期生效。');
+        toast('通知权限已开启，请保存设置。', 'ok');
+      }
+    } finally {
+      button.disabled = false;
+    }
   });
-  $('#task-notifications-enabled', el).addEventListener('change', event => {
-    void requestPermissionOnEnable(event);
+
+  $('#btn-open-notification-settings', el)?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await openNotificationSettings();
+      setStatus('已打开系统通知设置：允许通知后回到这里，再点「申请通知权限」或保存设置。');
+    } catch (error) {
+      setStatus(error?.message || '无法打开系统通知设置');
+      toast(error?.message || '无法打开系统通知设置', 'err');
+    } finally {
+      button.disabled = false;
+    }
   });
+
+  $('#notifications-enabled', el)?.addEventListener('change', event => { void requestPermissionOnEnable(event); });
+  $('#task-notifications-enabled', el)?.addEventListener('change', event => { void requestPermissionOnEnable(event); });
   el.querySelectorAll('[data-notification-enabled]').forEach(checkbox => {
     checkbox.addEventListener('change', event => { void requestPermissionOnEnable(event); });
   });

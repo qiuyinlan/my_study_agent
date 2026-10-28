@@ -76,6 +76,12 @@ heads-up banner instead of silently landing in the shade.
 The website can store these settings, but browsers do not reliably deliver notifications after the
 page closes — the notification page says so instead of pretending.
 
+Prerequisite: on Android 13+ the user must grant the `POST_NOTIFICATIONS` runtime permission. The
+page asks for it the moment any switch is turned on, and 申请通知权限 asks again on demand. When the
+system stops showing the dialog (two refusals), `AppSettingsPlugin.openNotificationSettings()` takes
+the user straight to this app's notification settings page. Times stay editable regardless of the
+permission state — nothing on that page silently does nothing.
+
 ## Automatic updates
 
 Three layers, all pointing at the public GitHub releases of this repository:

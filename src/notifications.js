@@ -153,6 +153,23 @@ export async function requestNotificationPermission() {
   return state.display;
 }
 
+/**
+ * Android 13+ 用户连点两次拒绝后，系统就**不再弹权限框**了：
+ * requestPermissions() 只会立刻返回 denied，用户看到的就是"点了没反应"。
+ * 那时唯一有效的动作是把他送到系统设置页自己打开通知。
+ *
+ * 这里走壳里注册的 AppSettings 插件（android/.../AppSettingsPlugin.java）。
+ * 插件名用动态 import + registerPlugin：src/ 下不能出现静态裸模块导入，
+ * 否则网站会整页白屏（见 src/native.js）。
+ */
+export async function openNotificationSettings() {
+  if (!isNativePlatform()) throw new Error('手机系统通知仅在 Android App 中可用。');
+  const { Capacitor } = await import('@capacitor/core');
+  const plugin = Capacitor.Plugins?.AppSettings || Capacitor.registerPlugin('AppSettings');
+  if (!plugin) throw new Error('当前 App 版本还没有内置「打开通知设置」，请更新到最新版本。');
+  await withTimeout(plugin.openNotificationSettings(), 6000, null);
+}
+
 /** 用户主动点了「让提醒更准时」才打开系统设置页，避免莫名其妙跳转。 */
 export async function requestExactAlarmPermission() {
   if (nativePlatform() !== 'android') return 'granted';
@@ -358,4 +375,17 @@ export async function cancelAllNotifications() {
   const { notifications: pending } = await api.getPending();
   if (pending.length) await api.cancel({ notifications: pending.map(item => ({ id: item.id })) });
   return pending.length;
+}
+
+/**
+ * 诊断用：一次把"外壳 / 平台 / 插件 / 权限"这些设备事实取出来。
+ * 有了这行，用户说"点了没反应"时就不用猜 —— 直接看图里写的是哪一步断了。
+ */
+export async function notificationDiagnostics() {
+  const native = isNativePlatform();
+  const platform = nativePlatform();
+  const pluginAvailable = Boolean(globalThis.Capacitor?.isPluginAvailable?.('LocalNotifications'));
+  if (!native) return { native, platform, pluginAvailable, permission: 'unsupported', exactAlarm: 'n/a' };
+  const [permission, exactAlarm] = await Promise.all([getNotificationPermission(), getExactAlarmPermission()]);
+  return { native, platform, pluginAvailable, permission, exactAlarm };
 }
