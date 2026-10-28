@@ -13,7 +13,7 @@ import {
   $, $$, toast, renderStats, renderBrand, renderTimerBar, renderNav, initChromeIcons,
   createChatView, renderPendingArea, markPendingDone,
 } from './ui.js';
-import { PANELS, showPanel, getCurrentPanel, setPanelSub, refreshPanel, panelBadges } from './panels.js';
+import { PANELS, showPanel, getCurrentPanel, setPanelSub, refreshPanel, panelBadges, renderNotifications } from './panels.js';
 import { computeToday, todayCards } from './planner.js';
 import { runTurn } from './agent.js';
 import {
@@ -274,8 +274,14 @@ async function switchPanel(id) {
   applyUiState();
   renderChrome();
 
-  // 数据还没就绪时只切视图，别用残缺对象去渲染（会崩）
-  if (!todayState) return;
+  // 数据还没就绪时只切视图，别用残缺对象去渲染（会崩）。
+  // 例外：通知页不依赖今日数据 —— 先把它画出来，否则切过去是一片白。
+  if (!todayState) {
+    if (id === 'notifications') {
+      try { await renderNotifications(); } catch (e) { console.warn('[switchPanel]', e); }
+    }
+    return;
+  }
   try {
     const plan = await getMeta('todayPlan', null);
     await refreshPanel(id, todayState, lastCards, plan, handlers);

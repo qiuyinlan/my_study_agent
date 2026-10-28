@@ -51,6 +51,19 @@ export const isNativeNotifications = () => isNativePlatform();
 
 let plugin = null;
 
+/**
+ * 原生调用一律加超时。
+ * 桥没通、插件没注册、系统设置页没返回时，Capacitor 的 Promise 可能一直不 settle；
+ * 那时 await 会挂住，界面就停在空白上 —— 用户看到的就是"白屏"。
+ * 宁可给一句"读不到"，也不要什么都不显示。
+ */
+function withTimeout(promise, ms = 4000, fallbackValue) {
+  return Promise.race([
+    promise,
+    new Promise(resolve => setTimeout(() => resolve(fallbackValue), ms)),
+  ]);
+}
+
 /** 拿到 LocalNotifications 插件实例；网页端直接抛可读错误。 */
 async function notifications() {
   if (plugin) return plugin;
@@ -101,8 +114,8 @@ export async function getNotificationSettings() {
 export async function getNotificationPermission() {
   if (!isNativePlatform()) return 'unsupported';
   try {
-    const result = await (await notifications()).checkPermissions();
-    return result.display;
+    const result = await withTimeout((await notifications()).checkPermissions(), 4000, { display: 'unavailable' });
+    return result?.display || 'unavailable';
   } catch {
     return 'unavailable';
   }
@@ -112,8 +125,8 @@ export async function getNotificationPermission() {
 export async function getExactAlarmPermission() {
   if (nativePlatform() !== 'android') return 'granted';
   try {
-    const state = await (await notifications()).checkExactNotificationSetting();
-    return state.exact_alarm || 'unknown';
+    const state = await withTimeout((await notifications()).checkExactNotificationSetting(), 4000, { exact_alarm: 'unknown' });
+    return state?.exact_alarm || 'unknown';
   } catch {
     return 'unknown';
   }
@@ -122,13 +135,19 @@ export async function getExactAlarmPermission() {
 /**
  * 要系统通知权限。只抛"通知权限被拒绝"这一种错，
  * 「闹钟和提醒」没开不算失败 —— 那只会让提醒晚几分钟，不该拦住保存。
+ * 每一步都带超时：系统弹窗没出现时也要给用户一句人话，不能卡在"点了没反应"。
  */
 export async function requestNotificationPermission() {
   if (!isNativePlatform()) throw new Error('手机系统通知仅在 Android App 中可用。');
   const api = await notifications();
-  let state = await api.checkPermissions();
-  if (state.display !== 'granted') state = await api.requestPermissions();
-  if (state.display !== 'granted') {
+  let state = await withTimeout(api.checkPermissions(), 4000, { display: 'unavailable' });
+  if (state?.display !== 'granted') {
+    state = await withTimeout(api.requestPermissions(), 60000, { display: 'unavailable' });
+  }
+  if (state?.display === 'unavailable') {
+    throw new Error('系统没有响应通知权限请求。请退出应用重进，然后在「设置 → 应用 → My Study Agent → 通知」里手动允许。');
+  }
+  if (state?.display !== 'granted') {
     throw new Error('系统通知权限没有开启：请到「设置 → 应用 → My Study Agent → 通知」里允许通知。');
   }
   return state.display;
@@ -139,10 +158,10 @@ export async function requestExactAlarmPermission() {
   if (nativePlatform() !== 'android') return 'granted';
   const api = await notifications();
   try {
-    const before = await api.checkExactNotificationSetting();
-    if (before.exact_alarm === 'granted') return 'granted';
-    const after = await api.changeExactNotificationSetting();
-    return after.exact_alarm || 'unknown';
+    const before = await withTimeout(api.checkExactNotificationSetting(), 4000, { exact_alarm: 'unknown' });
+    if (before?.exact_alarm === 'granted') return 'granted';
+    const after = await withTimeout(api.changeExactNotificationSetting(), 60000, { exact_alarm: 'unknown' });
+    return after?.exact_alarm || 'unknown';
   } catch (error) {
     throw new Error(error?.message || '无法打开「闹钟和提醒」设置。');
   }
@@ -325,8 +344,9 @@ export function listenForNotificationNavigation(onNavigate) {
 export async function notificationCounts() {
   if (!isNativePlatform()) return { pending: 0, native: false };
   try {
-    const result = await (await notifications()).getPending();
-    return { pending: result.notifications.length, native: true };
+    const result = await withTimeout((await notifications()).getPending(), 4000, null);
+    if (!result) return { pending: 0, native: true, error: '读取待发送提醒超时' };
+    return { pending: result.notifications?.length || 0, native: true };
   } catch (error) {
     return { pending: 0, native: true, error: error?.message || String(error) };
   }

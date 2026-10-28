@@ -1618,11 +1618,17 @@ body.nav-collapsed .nav { width: 0; flex-basis: 0; max-height: none; min-height:
 
 /* ── 任务和微习惯共用同一个勾选框 ─────────────────────────────
    任务本来是一排状态徽章，操作起来像"管理表单"；微习惯是"点一下打勾"。
-   现在两块用完全一样的尺寸、圆角、填充色，行为也一致：点勾 = 完成 / 取消完成。 */
+   现在两块用完全一样的尺寸、圆角、填充色，行为也一致：点勾 = 完成 / 取消完成。
+
+   ⚠️ min/max 高度必须显式写死：手机断点里有一条 `button { min-height: 44px }`
+   （触摸目标）。任务勾选框自己就是 <button>，会被拉成 24×44 的长方形；而微习惯
+   的 .habit-check 是 <span>，所以不受影响 —— 这正是"任务变竖条、微习惯正常"的原因。 */
 .task-check,
-.habit-check {
-  width: 24px; height: 24px; min-width: 24px; flex: 0 0 auto;
-  display: grid; place-items: center; padding: 0;
+.habit-check,
+button.task-check {
+  width: 24px; height: 24px; min-width: 24px; min-height: 24px; max-width: 24px; max-height: 24px;
+  flex: 0 0 24px;
+  display: grid; place-items: center; padding: 0; line-height: 1;
   border: 2px solid #b9d2bd; border-radius: 8px;
   background: #fff; color: #fff; appearance: none; cursor: pointer;
   transition: background .12s, border-color .12s;

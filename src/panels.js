@@ -905,31 +905,35 @@ const PROFILE_ROWS = [
   ['otherNeeds', '其他需求'],
 ];
 
+const PERMISSION_TEXT = {
+  granted: '系统通知权限已允许',
+  denied: '系统通知权限被拒绝，去系统设置里允许通知',
+  unsupported: '网页可以设置时间，但只有 Android App 能在后台发送通知',
+  unavailable: '暂时读不到系统通知权限（重开后仍不行，就去系统设置里手动允许）',
+  unknown: '首次打开开关时会请求系统通知权限',
+};
+
 export async function renderNotifications() {
   const el = $('#view-notifications');
   if (!el) return;
-  const settings = await getNotificationSettings();
-  const permission = await getNotificationPermission();
-  const exactAlarm = await getExactAlarmPermission();
-  const counts = await notificationCounts();
-  const native = isNativeNotifications();
 
-  const permissionText = !native
-    ? '网页可以设置时间，但只有 Android App 能在后台发送通知'
-    : permission === 'granted'
-      ? '系统通知权限已允许'
-      : permission === 'denied'
-        ? '系统通知权限被拒绝，去系统设置里允许通知'
-        : '首次打开开关时会请求系统通知权限';
-  const statusLine = !native
-    ? '这些设置在网页上只会被保存；提醒要装 Android App 才会真的发出来。'
-    : `待发送提醒 ${counts.pending} 条${exactAlarm === 'granted' ? ' · 精确提醒已允许' : ' · 精确提醒未允许（可能晚几分钟）'}${counts.error ? ` · ${counts.error}` : ''}`;
+  /* 先用本地设置把界面画出来 —— 绝不在画之前 await 任何原生接口。
+     Capacitor 的桥在某些情况下不 settle（插件没注册、系统设置页没返回），
+     一旦在首屏前 await，用户看到的就是一片白。 */
+  let settings;
+  try {
+    settings = await getNotificationSettings();
+  } catch (error) {
+    console.warn('[notifications-settings]', error);
+    settings = { enabled: false, morning: { enabled: true, time: '09:00' }, noon: { enabled: true, time: '13:00' }, evening: { enabled: true, time: '21:00' }, taskNotifications: true };
+  }
+  const native = isNativeNotifications();
 
   const slot = key => `<label class="notification-slot"><span><input type="checkbox" data-notification-enabled="${key}" ${settings[key].enabled ? 'checked' : ''}><strong>${DAILY_LABELS[key]}</strong></span><input type="time" data-notification-time="${key}" value="${esc(settings[key].time)}" aria-label="${DAILY_LABELS[key]}时间" ${settings.enabled ? '' : 'disabled'}></label>`;
 
   el.innerHTML = `<div class="notification-settings">
     <section class="notification-section"><h3>复盘提醒</h3>
-      <label class="notification-master"><input type="checkbox" id="notifications-enabled" ${settings.enabled ? 'checked' : ''}><span><strong>启用手机通知</strong><small id="notification-permission-status">${permissionText}</small></span></label>
+      <label class="notification-master"><input type="checkbox" id="notifications-enabled" ${settings.enabled ? 'checked' : ''}><span><strong>启用手机通知</strong><small id="notification-permission-status">${native ? '正在读取通知权限…' : PERMISSION_TEXT.unsupported}</small></span></label>
       <div class="notification-times">${DAILY_SLOTS.map(slot).join('')}</div>
     </section>
     <section class="notification-section"><h3>任务提醒</h3>
@@ -938,9 +942,9 @@ export async function renderNotifications() {
     <section class="notification-section"><h3>检查</h3>
       <div class="notification-actions" style="justify-content:flex-start;gap:10px;padding:0;flex-wrap:wrap">
         <button type="button" class="ghost" id="btn-test-notification">发送测试提醒</button>
-        <button type="button" class="ghost" id="btn-exact-alarm" ${exactAlarm === 'granted' ? 'hidden' : ''}>让提醒更准时</button>
+        <button type="button" class="ghost" id="btn-exact-alarm" hidden>让提醒更准时</button>
       </div>
-      <div class="hint" id="notification-status-line" aria-live="polite" style="margin-top:10px">${statusLine}</div>
+      <div class="hint" id="notification-status-line" aria-live="polite" style="margin-top:10px">${native ? '正在读取待发送提醒…' : '这些设置在网页上只会被保存；提醒要装 Android App 才会真的发出来。'}</div>
     </section>
     <div class="notification-actions"><button class="primary" id="save-notification-settings">保存设置</button></div>
   </div>`;
@@ -953,6 +957,22 @@ export async function renderNotifications() {
     const node = $('#notification-permission-status', el);
     if (node) node.textContent = text;
   };
+
+  /* 界面已经在屏幕上了，再去问原生补状态。任何一步失败或超时都只影响这行字。 */
+  if (native) {
+    void (async () => {
+      const [permission, exactAlarm, counts] = await Promise.all([
+        getNotificationPermission(),
+        getExactAlarmPermission(),
+        notificationCounts(),
+      ]);
+      if (!el.isConnected) return;
+      setPermissionStatus(PERMISSION_TEXT[permission] || PERMISSION_TEXT.unknown);
+      const exact = $('#btn-exact-alarm', el);
+      if (exact) exact.hidden = exactAlarm === 'granted';
+      setStatus(`待发送提醒 ${counts.pending} 条 · ${exactAlarm === 'granted' ? '精确提醒已允许' : '精确提醒未允许（可能晚几分钟）'}${counts.error ? ` · ${counts.error}` : ''}`);
+    })();
+  }
   const toggleTimes = enabled => {
     el.querySelectorAll('[data-notification-time]').forEach(input => { input.disabled = !enabled; });
   };
