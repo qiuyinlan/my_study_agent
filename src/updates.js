@@ -15,7 +15,7 @@
 //      APK 下载地址可以按版本号拼出来。
 // API 挂了就用 2 兜底，绝不把"403"直接甩给用户。
 
-import { isAndroidPlatform } from './native.js';
+import { isAndroidPlatform, nativePlugin } from './native.js';
 
 const REPO = 'qiuyinlan/my_study_agent';
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases?per_page=10`;
@@ -48,8 +48,8 @@ let updater = null;
 /** 拿到自定义的 AppUpdater 插件（Android 壳里注册的）。 */
 async function updaterPlugin() {
   if (updater) return updater;
-  const module = await import('@capacitor/core');
-  updater = module.Capacitor.registerPlugin('AppUpdater');
+  updater = nativePlugin('AppUpdater');
+  if (!updater) throw new Error('Android 更新组件不可用，请重新安装最新版应用。');
   return updater;
 }
 

@@ -28,7 +28,7 @@ globalThis.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'andro
 /* Vite 打包时注入 __APP_VERSION__；测试里自己塞一个，才能验证"有新版本"这条分支 */
 globalThis.__APP_VERSION__ = '1.3.1';
 
-const { compareAppVersions, checkForUpdates, checkForUpdatesDaily, releaseDownloadUrl, __setUpdaterPluginForTest } = await import('../src/updates.js');
+const { compareAppVersions, checkForUpdates, checkForUpdatesDaily, releaseDownloadUrl, isAndroidApp, __setUpdaterPluginForTest } = await import('../src/updates.js');
 
 /* ── 1) 版本比较 ── */
 assert.equal(compareAppVersions('1.2.0', '1.1.0'), 1);
@@ -137,6 +137,16 @@ await checkForUpdatesDaily(() => {});
 assert.equal(downloadCalls.length, 1, '发现新版本时自动排一次下载');
 assert.equal(downloadCalls[0].allowMobileData, false, '自动下载不能烧流量，必须只允许 Wi-Fi');
 assert.match(downloadCalls[0].url, /releases\/download\/v2\.2\.0\/MyStudyAgent\.apk$/);
+
+__setUpdaterPluginForTest(null);
+globalThis.Capacitor.Plugins = {
+  AppUpdater: {
+    async getLatestDownload() { return { downloadId: 42, version: '2.2.0', status: 'downloading' }; },
+    async downloadUpdate() { throw new Error('已有下载时不应重复排队'); },
+  },
+};
+await checkForUpdatesDaily(() => {});
+assert.equal(isAndroidApp(), true, '获取原生更新插件后 Android 平台状态必须保持不变');
 
 /* 已经有可用下载时不要重复排队 */
 downloadCalls.length = 0;
