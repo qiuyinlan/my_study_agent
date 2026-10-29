@@ -8,6 +8,8 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(AppUpdaterPlugin.class);
         registerPlugin(AppSettingsPlugin.class);
+        registerPlugin(NotificationPermissionPlugin.class);
+        registerPlugin(AppFilesPlugin.class);
         super.onCreate(savedInstanceState);
         UpdateCheckScheduler.schedule(this);
     }

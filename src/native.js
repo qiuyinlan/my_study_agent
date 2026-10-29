@@ -33,3 +33,23 @@ export async function loadNativePlugin(loader) {
   if (!isNativePlatform()) throw new Error('该功能仅在手机 App 中可用。');
   return loader();
 }
+
+/**
+ * 取一个原生插件实例（同步）。
+ *
+ * **优先用 native-bridge 已经注入的 Capacitor.Plugins**：壳启动时就把
+ * PluginHeaders 里的插件都挂好了，直接用全局即可。
+ *
+ * 为什么不图省事走 `import('@capacitor/core').Capacitor.registerPlugin(...)`：
+ * 那个模块被求值时会把 `window.Capacitor` 换成它自己那份实例
+ * （initCapacitorGlobal）。真机上两者等价，但在测试或别的宿主里会把平台判断
+ * 从 android 打回 web —— 于是后面的 isNativePlatform() 全变成 false，
+ * 表现为"前一步还是原生，后一步突然说只在 App 里可用"。
+ */
+export function nativePlugin(name) {
+  const cap = core();
+  if (!cap) return null;
+  if (cap.Plugins?.[name]) return cap.Plugins[name];
+  if (cap.isPluginAvailable?.(name) === false) return null;
+  return typeof cap.registerPlugin === 'function' ? cap.registerPlugin(name) : null;
+}

@@ -18,7 +18,7 @@
 //      等保存时才要权限，用户点完看不出任何反馈，很容易以为按钮坏了。
 
 import { getMeta, listTasks, setMeta } from './db.js';
-import { isNativePlatform, nativePlatform } from './native.js';
+import { isNativePlatform, nativePlatform, nativePlugin } from './native.js';
 
 const SETTINGS_KEY = 'notificationSettings';
 const CHANNEL_ID = 'msa-reminders';
@@ -68,6 +68,10 @@ function withTimeout(promise, ms = 4000, fallbackValue) {
 async function notifications() {
   if (plugin) return plugin;
   if (!isNativePlatform()) throw new Error('手机系统通知仅在 Android App 中可用。');
+  // 先用桥上的全局判断（不 import core，见 nativePlugin 的注释）。
+  if (globalThis.Capacitor?.isPluginAvailable && !globalThis.Capacitor.isPluginAvailable('LocalNotifications')) {
+    throw new Error('当前 APK 没有注册本地通知插件，请重新构建并安装最新 APK。');
+  }
   const module = await import('@capacitor/local-notifications');
   plugin = module.LocalNotifications;
   return plugin;
@@ -114,6 +118,11 @@ export async function getNotificationSettings() {
 export async function getNotificationPermission() {
   if (!isNativePlatform()) return 'unsupported';
   try {
+    const permissionPlugin = await loadNotificationPermissionPlugin();
+    if (permissionPlugin) {
+      const result = await withTimeout(permissionPlugin.check(), 4000, { display: 'unavailable' });
+      return result?.display || 'unavailable';
+    }
     const result = await withTimeout((await notifications()).checkPermissions(), 4000, { display: 'unavailable' });
     return result?.display || 'unavailable';
   } catch {
@@ -135,22 +144,40 @@ export async function getExactAlarmPermission() {
 /**
  * 要系统通知权限。只抛"通知权限被拒绝"这一种错，
  * 「闹钟和提醒」没开不算失败 —— 那只会让提醒晚几分钟，不该拦住保存。
- * 每一步都带超时：系统弹窗没出现时也要给用户一句人话，不能卡在"点了没反应"。
+ *
+ * 每一步都带超时，而且超时要短：系统弹窗压根不出现时（Android 13+ 连拒两次、
+ * 或者系统里把这个应用的通知整个关掉了），Capacitor 的 Promise 会一直不 settle。
+ * 早先这里等 60 秒 —— 用户点完开关盯着一分钟没有任何变化，只会说"点了没反应"。
  */
 export async function requestNotificationPermission() {
   if (!isNativePlatform()) throw new Error('手机系统通知仅在 Android App 中可用。');
-  const api = await notifications();
-  let state = await withTimeout(api.checkPermissions(), 4000, { display: 'unavailable' });
-  if (state?.display !== 'granted') {
-    state = await withTimeout(api.requestPermissions(), 60000, { display: 'unavailable' });
+  let state;
+  const permissionPlugin = await loadNotificationPermissionPlugin();
+  if (permissionPlugin) {
+    state = await withTimeout(permissionPlugin.request(), 12000, { display: 'unavailable' });
+  } else {
+    const api = await notifications();
+    state = await withTimeout(api.requestPermissions(), 12000, { display: 'unavailable' });
   }
   if (state?.display === 'unavailable') {
-    throw new Error('系统没有响应通知权限请求。请退出应用重进，然后在「设置 → 应用 → My Study Agent → 通知」里手动允许。');
+    throw new Error('10 秒内系统没有弹出权限框（多半是它已经不许再弹了）。请点「打开系统通知设置」，在本应用的通知设置里手动允许。');
   }
   if (state?.display !== 'granted') {
-    throw new Error('系统通知权限没有开启：请到「设置 → 应用 → My Study Agent → 通知」里允许通知。');
+    throw new Error('系统里的通知还是关着的：点「打开系统通知设置」→ 允许通知 → 回到这里再点一次。');
   }
   return state.display;
+}
+
+async function loadNotificationPermissionPlugin() {
+  if (!isNativePlatform()) return null;
+  const cap = globalThis.Capacitor;
+  if (!cap) return null;
+  if (cap.Plugins?.NotificationPermission) return cap.Plugins.NotificationPermission;
+  // This plugin is registered directly by MainActivity, so it has no generated
+  // PluginHeader for isPluginAvailable() to detect.
+  return typeof cap.registerPlugin === 'function'
+    ? cap.registerPlugin('NotificationPermission')
+    : null;
 }
 
 /**
@@ -164,8 +191,7 @@ export async function requestNotificationPermission() {
  */
 export async function openNotificationSettings() {
   if (!isNativePlatform()) throw new Error('手机系统通知仅在 Android App 中可用。');
-  const { Capacitor } = await import('@capacitor/core');
-  const plugin = Capacitor.Plugins?.AppSettings || Capacitor.registerPlugin('AppSettings');
+  const plugin = nativePlugin('AppSettings');
   if (!plugin) throw new Error('当前 App 版本还没有内置「打开通知设置」，请更新到最新版本。');
   await withTimeout(plugin.openNotificationSettings(), 6000, null);
 }

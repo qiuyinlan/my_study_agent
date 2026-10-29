@@ -44,7 +44,15 @@ assert.equal(webSave.scheduled, null, '网页端只存设置，不排期');
 globalThis.Capacitor = {
   isNativePlatform: () => true,
   getPlatform: () => 'android',
-  registerPlugin: () => ({}),
+  isPluginAvailable: name => name === 'LocalNotifications',
+  registerPlugin: name => name === 'NotificationPermission'
+    ? permissionPlugin
+    : ({}),
+};
+let permissionRequests = 0;
+const permissionPlugin = {
+  async check() { return { display: 'granted' }; },
+  async request() { permissionRequests++; return { display: 'granted' }; },
 };
 web.__setNotificationPluginForTest(fakePlugin);
 
@@ -113,6 +121,7 @@ const custom = await web.scheduleChatNotification({
 });
 assert.equal(calls.scheduled[0].title, '该喝水了', '标题去掉首尾空格');
 assert.equal(calls.scheduled[0].extra.panel, 'chat');
+assert.equal(permissionRequests, 1, '直接注册的原生权限插件不依赖自动生成的 PluginHeader');
 await assert.rejects(() => web.scheduleChatNotification({ title: 'x', at: new Date(Date.now() - 1000).toISOString() }),
   /未来时间/);
 assert.ok(custom.id >= 2000000000);

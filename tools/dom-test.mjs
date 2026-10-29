@@ -1163,6 +1163,21 @@ check('备份和导出入口位于设置内',
   $('#dlg-settings')?.contains($('#btn-settings-export'))
     && $('#dlg-settings')?.contains($('#btn-settings-backup'))
     && $('#btn-export') === null && $('#btn-backup') === null);
+check('设置里直接提供导出备份与导入备份（不必先进二级弹窗）',
+  $('#dlg-settings')?.contains($('#btn-settings-export-backup'))
+    && $('#dlg-settings')?.contains($('#btn-settings-import-backup')));
+
+/* 备份文件校验：选错文件时必须直说，而不是合并出半套数据 */
+const { parseBackup, backupFileName, exportBackup } = await import('../src/backup.js');
+check('备份文件名带日期', /^学习助手备份-\d{4}-\d{2}-\d{2}\.json$/.test(backupFileName()));
+check('选错文件时明确指出不像是本应用的备份',
+  (() => { try { parseBackup('{"hello":1}', 'a.json'); return false; } catch (e) { return /stores/.test(e.message); } })());
+check('不是 JSON 的文件也会被拦住',
+  (() => { try { parseBackup('not json', 'b.json'); return false; } catch (e) { return /不是合法 JSON/.test(e.message); } })());
+const webExport = await exportBackup();
+check('网页端导出走浏览器下载并带回统计',
+  webExport.savedVia === 'web' && typeof webExport.fileName === 'string' && webExport.summary && 'tasks' in webExport.summary,
+  JSON.stringify(webExport.summary));
 check('设置显示同步与浏览器存储用量', $('#storage-usage') !== null && $('#btn-refresh-storage') !== null);
 check('设置提供对话和档案的手动删除键',
   $('#btn-delete-all-conversations') !== null && $('#btn-delete-profile') !== null);

@@ -16,7 +16,7 @@ import { getTimeEntry, updateTimeEntry, deleteTimeEntry, createManualEntry } fro
 import { getLog, updateLog, deleteLog, createLog } from './daylog.js';
 import {
   mirrorSupported, getMirrorState, pickMirror, stopMirror, requestMirrorPermission,
-  exportToDownload, pickImportFile, importFromObject, summarize,
+  exportBackup, pickBackupFile, importFromObject, summarize,
 } from './backup.js';
 import { upsertReward, deleteReward } from './ledger.js';
 import { savePlan, getPlan, deletePlan, listPlans, saveSop, getSop, deleteSop, checkFeasibility, planStages } from './docs.js';
@@ -165,6 +165,8 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
       $('#btn-diag-copy').onclick = null;
       $('#btn-settings-export').onclick = null;
       $('#btn-settings-backup').onclick = null;
+      $('#btn-settings-export-backup').onclick = null;
+      $('#btn-settings-import-backup').onclick = null;
       $('#review-sync-login').onclick = null;
       $('#review-sync-signup').onclick = null;
       $('#review-sync-logout').onclick = null;
@@ -185,6 +187,61 @@ export async function openSettings({ onChange, profile, onBackup, onExport }) {
     $('#btn-settings-close').onclick = () => dlg.close('cancel');
     $('#btn-settings-export').onclick = () => onExport?.();
     $('#btn-settings-backup').onclick = () => onBackup?.();
+
+    const setSettingsStatus = (text, kind = '') => {
+      const node = $('#set-status');
+      if (!node) return;
+      node.textContent = text;
+      node.className = `status ${kind}`.trim();
+    };
+
+    /* 导出备份：手机上走系统文件选择器（AppFiles 插件），网页上直接下载。
+       以前只有「备份与恢复」里的入口，手机上点完既不知道存到哪了、也常常什么都没发生。 */
+    $('#btn-settings-export-backup').onclick = async () => {
+      setSettingsStatus('正在导出备份…');
+      try {
+        const result = await exportBackup();
+        if (result.cancelled) {
+          setSettingsStatus('已取消导出。');
+          return;
+        }
+        const s = result.summary;
+        const where = result.savedVia === 'native'
+          ? `已保存到你选的位置：${result.fileName}`
+          : result.savedVia === 'share'
+            ? `已交给系统分享面板，选「保存到文件」即可落盘：${result.fileName}`
+            : `已下载：${result.fileName}`;
+        setSettingsStatus(`${where}（${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆）`, 'ok');
+        toast('备份已导出', 'ok');
+      } catch (error) {
+        setSettingsStatus(`导出失败：${error.message || error}`, 'err');
+        toast('导出失败', 'err');
+      }
+    };
+
+    /* 导入备份：默认合并（同 id 以文件为准，不删除现有数据），导入后立刻刷新界面。 */
+    $('#btn-settings-import-backup').onclick = async () => {
+      setSettingsStatus('正在选择备份文件…');
+      try {
+        const picked = await pickBackupFile();
+        if (!picked) { setSettingsStatus('已取消导入。'); return; }
+        const s = summarize(picked.data);
+        setSettingsStatus('');
+        const name = picked.fileName ? `「${picked.fileName}」` : '这个文件';
+        if (!confirm(`即将从${name}导入：\n${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆\n\n方式：合并（同 id 以文件为准，不删除现有数据）\n\n继续？`)) {
+          setSettingsStatus('已取消导入。');
+          return;
+        }
+        await importFromObject(picked.data, { mode: 'merge' });
+        setSettingsStatus(`导入成功：${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆`, 'ok');
+        toast('数据已导入', 'ok');
+        await onChange?.();
+      } catch (error) {
+        setSettingsStatus(`导入失败：${error.message || error}`, 'err');
+        toast('导入失败', 'err');
+      }
+    };
+
     $('#set-baseurl').oninput = updateBaseUrlNotice;
 
     const runReviewAuth = async action => {
@@ -403,11 +460,19 @@ export async function openBackup({ onChanged }) {
     };
 
     $('#btn-export-json').onclick = async () => {
+      status.className = 'status';
+      status.textContent = '正在导出…';
       try {
-        const data = await exportToDownload();
-        const s = summarize(data);
+        const result = await exportBackup();
+        if (result.cancelled) { status.textContent = '已取消导出。'; return; }
+        const s = result.summary;
+        const where = result.savedVia === 'native'
+          ? `已保存到你选的位置：${result.fileName}`
+          : result.savedVia === 'share'
+            ? `已打开系统分享面板，选「保存到文件」即可落盘：${result.fileName}`
+            : `已下载：${result.fileName}`;
         status.className = 'status ok';
-        status.textContent = `已导出：${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆`;
+        status.textContent = `${where}（${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆）`;
       } catch (e) {
         status.className = 'status err';
         status.textContent = `导出失败：${e.message}`;
@@ -415,19 +480,20 @@ export async function openBackup({ onChanged }) {
     };
 
     $('#btn-import').onclick = async () => {
+      status.className = 'status';
+      status.textContent = '正在选择备份文件…';
       try {
-        let data;
-        try { data = await pickImportFile(); } catch (e) {
-          status.className = 'status err';
-          status.textContent = `读取失败：${e.message}`;
+        const picked = await pickBackupFile();
+        if (!picked) { status.textContent = '已取消导入。'; return; }
+        const s = summarize(picked.data);
+        const name = picked.fileName ? `「${picked.fileName}」` : '这个文件';
+        if (!confirm(`即将从${name}导入：\n${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆\n\n方式：合并（同 id 以文件为准，不删除现有数据）\n\n继续？`)) {
+          status.textContent = '已取消导入。';
           return;
         }
-        if (!data) return;
-        const s = summarize(data);
-        if (!confirm(`即将导入：\n${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆\n\n方式：合并（同 id 以文件为准，不删除现有数据）\n\n继续？`)) return;
-        await importFromObject(data, { mode: 'merge' });
+        await importFromObject(picked.data, { mode: 'merge' });
         status.className = 'status ok';
-        status.textContent = '导入成功。';
+        status.textContent = `导入成功：${s.tasks} 任务 / ${s.topics} 知识点 / ${s.messages} 消息 / ${s.logs} 日志 / ${s.memories} 记忆`;
         toast('数据已导入', 'ok');
         await onChanged?.();
       } catch (e) {

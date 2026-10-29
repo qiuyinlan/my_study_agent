@@ -962,6 +962,7 @@ export async function renderNotifications() {
       </div>
       <div class="hint" id="notification-status-line" aria-live="polite" style="margin-top:10px">${native ? '正在读取待发送提醒…' : '这些设置在网页上只会被保存；提醒要装 Android App 才会真的发出来。'}</div>
       <div class="hint" id="notification-diagnostic" style="margin-top:6px;opacity:.75">${native ? '正在读取设备状态…' : '外壳：网页版（不是 Android App）'}</div>
+      <div class="hint" id="notification-tap-line" style="margin-top:6px;opacity:.6">点一下上面的开关或按钮，这里会记下时间 —— 用来区分"点了但失败"和"根本没点到"。</div>
     </section>
     <div class="notification-actions"><button class="primary" id="save-notification-settings">保存设置</button></div>
   </div>`;
@@ -982,6 +983,15 @@ export async function renderNotifications() {
     const button = $('#btn-open-notification-settings', el);
     if (button) button.hidden = !show;
   };
+  /* 触控探针：点到的瞬间就记一笔（同步、不 await）。
+     用户再报"没反应"时，这一行有没有更新就能定性：有 → 逻辑失败；没有 → 触控没到 JS。 */
+  const markTap = label => {
+    const node = $('#notification-tap-line', el);
+    if (!node) return;
+    const t = new Date();
+    const p = n => String(n).padStart(2, '0');
+    node.textContent = `最近一次点击：${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())} · ${label}`;
+  };
 
   /** 失败的三处都写一遍：开关下的小字、状态行、toast。任一处被看见都算数。 */
   const reportProblem = message => {
@@ -999,9 +1009,16 @@ export async function renderNotifications() {
       toast(message, 'err');
       return false;
     }
+    /* 先把话说在前面：哪怕系统弹窗永远不出现，点完这一下也能**立刻**看到字。
+       这也是区分"点了但失败"和"根本没点到"的唯一办法 —— 之前要等原生接口
+       返回才有字，桥卡住时用户盯着一分钟什么都没有。 */
+    setPermissionStatus('正在申请系统通知权限…（10 秒内没有系统弹窗 = 系统已经不再弹了，点下面的「打开系统通知设置」手动允许）');
+    setStatus('正在申请系统通知权限…');
+    showSettingsEntry(true);
     try {
       await requestNotificationPermission();
       setPermissionStatus(PERMISSION_TEXT.granted);
+      setStatus('权限已开启。点「保存设置」才会真正开始排提醒。');
       showSettingsEntry(false);
       return true;
     } catch (error) {
@@ -1041,6 +1058,7 @@ export async function renderNotifications() {
   /* 打开任一开关都立刻要权限：点完马上有系统弹窗，而不是点保存才有反应。 */
   const requestPermissionOnEnable = async event => {
     const checkbox = event.currentTarget;
+    markTap(`${checkbox.id || checkbox.dataset.notificationEnabled || '开关'} ${checkbox.checked ? '打开' : '关闭'}`);
     if (!checkbox.checked) return;
     const ok = await enableWithPermission();
     if (ok) {
@@ -1053,8 +1071,8 @@ export async function renderNotifications() {
 
   $('#btn-request-permission', el)?.addEventListener('click', async event => {
     const button = event.currentTarget;
+    markTap('申请通知权限');
     button.disabled = true;
-    setStatus('正在请求系统通知权限…');
     try {
       const ok = await enableWithPermission();
       if (ok) {
@@ -1070,6 +1088,7 @@ export async function renderNotifications() {
 
   $('#btn-open-notification-settings', el)?.addEventListener('click', async event => {
     const button = event.currentTarget;
+    markTap('打开系统通知设置');
     button.disabled = true;
     try {
       await openNotificationSettings();
@@ -1086,6 +1105,13 @@ export async function renderNotifications() {
   $('#task-notifications-enabled', el)?.addEventListener('change', event => { void requestPermissionOnEnable(event); });
   el.querySelectorAll('[data-notification-enabled]').forEach(checkbox => {
     checkbox.addEventListener('change', event => { void requestPermissionOnEnable(event); });
+  });
+
+  /* 触控兜底：万一某个 WebView 里 <label> 内的 checkbox 不触发 change，
+     整行的手势至少会留下一笔记录，不至于让用户对着"没反应"猜。 */
+  el.querySelector('.notification-master')?.addEventListener('click', () => {
+    const node = $('#notification-tap-line', el);
+    if (node && !node.dataset.rowTap) { node.dataset.rowTap = '1'; markTap('点在了「启用手机通知」这一行'); }
   });
 
   $('#btn-exact-alarm', el).addEventListener('click', async event => {
